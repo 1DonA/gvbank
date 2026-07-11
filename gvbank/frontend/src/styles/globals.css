@@ -1,0 +1,33 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * { -webkit-tap-highlight-color: transparent; }
+  body { @apply antialiased; }
+}
+
+@layer components {
+  .input {
+    @apply w-full px-4 py-3.5 border-2 border-gray-200 rounded-xl font-sans text-sm outline-none
+           focus:border-navy-600 focus:shadow-[0_0_0_3px_rgba(10,22,40,0.08)] transition-all bg-white;
+  }
+  .label {
+    @apply block text-xs font-bold text-gray-500 uppercase tracking-widest mb-2;
+  }
+  .btn-primary {
+    @apply w-full py-4 bg-navy-600 text-white font-semibold rounded-xl
+           hover:bg-[#1e3a5f] transition-all disabled:opacity-60 text-sm;
+  }
+  .card {
+    @apply bg-white rounded-2xl border border-gray-100 overflow-hidden;
+  }
+}
+
+/* Safe area for iPhone notch */
+.safe-area-inset-bottom { padding-bottom: env(safe-area-inset-bottom); }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #e4e2dc; border-radius: 2px; }
