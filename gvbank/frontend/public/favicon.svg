@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="gvGold" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#e8c97a"/>
+      <stop offset="100%" stop-color="#c9a84c"/>
+    </linearGradient>
+    <linearGradient id="gvGloss" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <!-- Rounded-square gold plate -->
+  <rect width="64" height="64" rx="14" ry="14" fill="url(#gvGold)"/>
+  <!-- Subtle top-half gloss for depth -->
+  <rect width="64" height="32" rx="14" ry="14" fill="url(#gvGloss)"/>
+  <!-- Navy G in classic serif -->
+  <text x="32" y="50" text-anchor="middle"
+        font-family="Georgia, 'Playfair Display', 'Times New Roman', serif"
+        font-weight="700" font-size="48"
+        fill="#0a1628" letter-spacing="-1">G</text>
+</svg>
