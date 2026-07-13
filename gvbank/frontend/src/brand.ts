@@ -21,11 +21,13 @@ export const BRAND = {
   ],
 
   // ── Contact ──────────────────────────────────────────────────────────────
-  // See RENDER + PHONE guide (in-chat) for how to get a real forwarding number.
-  phone_display: '+49 800 482 2265',       // format friendly for display
-  phone_tel:     '+498004822265',           // tel: link format (no spaces)
-  phone_intl_display: '+44 20 8000 4822',
-  phone_intl_tel:     '+442080004822',
+  // Phone number temporarily disabled — customers are asked to contact their
+  // account officer instead. Set these back when a real number is ready.
+  phone_display: '',
+  phone_tel:     '',
+  phone_intl_display: '',
+  phone_intl_tel:     '',
+  account_officer_note: 'Please contact your dedicated account officer',
   support_email: 'support@gvunionbank.com',
   security_email: 'security@gvunionbank.com',
 

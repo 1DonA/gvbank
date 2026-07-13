@@ -474,7 +474,6 @@ function Footer() {
               Serving customers across all 50 states. Equal Housing Lender.
             </p>
             <div className="mt-4 space-y-2 text-sm text-gray-500">
-              <p className="flex items-center gap-2"><Phone size={13}/> 1-800-GVB-BANK</p>
               <p className="flex items-center gap-2"><Mail size={13}/> support@gvunionbank.com</p>
               <p className="flex items-center gap-2"><MapPin size={13}/> Chicago, IL · New York, NY</p>
             </div>

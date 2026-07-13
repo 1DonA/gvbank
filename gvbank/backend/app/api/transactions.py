@@ -145,8 +145,8 @@ async def initiate_transfer(
         raise HTTPException(
             403,
             f"This {acct.account_type.value} account has been blocked by GV Union Bank. "
-            "Transfers from this account are temporarily disabled. Please contact support "
-            "at +49 800 GVB-BANK to have the block reviewed."
+            "Transfers from this account are temporarily disabled. Please contact your account "
+            "officer to have the block reviewed."
         )
     if acct.status == AccountStatus.CLOSED:
         raise HTTPException(403, f"This {acct.account_type.value} account is closed and cannot be used for transfers.")
@@ -293,7 +293,7 @@ async def verify_transfer(
         raise HTTPException(
             403,
             "This account has been blocked since you started the transfer. "
-            "Please contact support at +49 800 GVB-BANK."
+            "Please contact your account officer."
         )
     total_debit = abs(tx.amount) + (tx.fee or 0.0)
     if acct.balance < total_debit:

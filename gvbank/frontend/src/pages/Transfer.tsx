@@ -311,8 +311,7 @@ function MethodStep({ form, accounts, upd, next }: any) {
             <p className="font-bold text-red-900">Some of your accounts are blocked</p>
             <p className="text-red-800 mt-0.5 leading-relaxed text-xs">
               Blocked accounts cannot be used to send or receive money. Please contact
-              support at <a href="tel:+498004822265" className="font-semibold underline">+49 800 GVB-BANK</a> to
-              have the block reviewed.
+              your <span className="font-semibold">account officer</span> to have the block reviewed.
             </p>
           </div>
         </div>

@@ -47,7 +47,6 @@ export function MarketingFooter() {
               Serving customers across the European Union and the United Kingdom. {BRAND.deposit_protection}.
             </p>
             <div className="mt-4 space-y-2 text-sm text-gray-500">
-              <p className="flex items-center gap-2"><Phone size={13}/> {BRAND.phone_display}</p>
               <p className="flex items-center gap-2"><Mail size={13}/> {BRAND.support_email}</p>
               <p className="flex items-center gap-2"><MapPin size={13}/> {BRAND.offices.slice(0,3).join(' · ')}</p>
             </div>

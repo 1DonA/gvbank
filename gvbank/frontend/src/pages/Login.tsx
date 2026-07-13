@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import toast from 'react-hot-toast'
-import { authAPI, supportAPI } from '../services/api'
+import { authAPI, supportAPI, setDeviceToken } from '../services/api'
 import { useAuthStore } from '../store/authStore'
 import { OTPInput } from '../components/ui/OTPInput'
 import {
@@ -24,23 +24,37 @@ export function LoginPage() {
   const { register, handleSubmit, getValues, formState: { errors } } =
     useForm<{ email: string; password: string; remember: boolean }>()
 
+  // Finalize sign-in — used both by direct (trusted device) and OTP paths.
+  const completeLogin = async (user: any, access_token: string, device_token?: string) => {
+    if (device_token) setDeviceToken(device_token)
+    setAuth(user, access_token)
+    try { await supportAPI.resetMyChat() } catch { /* non-fatal */ }
+    toast.success('Welcome back')
+    navigate(user.role === 'admin' ? '/admin' : '/dashboard')
+  }
+
   const onCredentials = async (data: { email: string; password: string }) => {
     setLoading(true)
     try {
       const res = await authAPI.loginInit(data)
-      // Admin path
-      if (!res.data.requires_otp && !res.data.requires_pin) {
-        setAuth(res.data.user, res.data.access_token)
-        navigate(res.data.user.role === 'admin' ? '/admin' : '/dashboard')
+      setPendingEmail(data.email)
+
+      // Case 1: JWT issued directly — admin, or trusted device with no PIN.
+      if (res.data.access_token) {
+        await completeLogin(res.data.user, res.data.access_token, res.data.device_token)
         return
       }
-      setPendingEmail(data.email)
-      // PIN required?
+
+      // Case 2: PIN required next.
       if (res.data.requires_pin) {
         setStep('pin')
-        toast('Enter your 4-digit PIN to continue.')
+        toast(res.data.device_trusted
+          ? 'Recognized device — enter your PIN to continue.'
+          : 'Enter your 4-digit PIN. We\'ll send a one-time code after.')
         return
       }
+
+      // Case 3: OTP required (new device, no PIN).
       setStep('otp')
       toast.success(res.data.message)
     } catch (e: any) {
@@ -54,7 +68,15 @@ export function LoginPage() {
     setLoading(true)
     try {
       const res = await authAPI.loginVerifyPin({ email: pendingEmail, pin: pinCode })
-      toast.success(res.data.message || 'PIN accepted')
+
+      // Trusted device: JWT issued immediately.
+      if (res.data.access_token) {
+        await completeLogin(res.data.user, res.data.access_token, res.data.device_token)
+        return
+      }
+
+      // New device: still need OTP.
+      toast.success(res.data.message || 'PIN accepted — check your email/SMS')
       setStep('otp')
     } catch (e: any) {
       toast.error(e.response?.data?.detail || 'Incorrect PIN')
@@ -68,11 +90,7 @@ export function LoginPage() {
     setLoading(true)
     try {
       const res = await authAPI.loginVerify({ email: pendingEmail, code, purpose: 'login' })
-      setAuth(res.data.user, res.data.access_token)
-      // Start a fresh support conversation each session — clears any old history.
-      try { await supportAPI.resetMyChat() } catch { /* non-fatal */ }
-      toast.success('Welcome back')
-      navigate('/dashboard')
+      await completeLogin(res.data.user, res.data.access_token, res.data.device_token)
     } catch (e: any) {
       toast.error(e.response?.data?.detail || 'Incorrect code')
       setOtp(Array(6).fill(''))
@@ -283,8 +301,8 @@ export function LoginPage() {
                   <p className="font-semibold text-gray-900">Security tip</p>
                   <p className="text-gray-600 text-xs mt-1 leading-relaxed">
                     We will never call, email or text you asking for your password, verification code, or full
-                    Social Security number. If you receive a suspicious message, do not respond — call us at
-                    <span className="font-mono font-semibold"> +49 800 GVB-BANK</span> to verify.
+                    Social Security number. If you receive a suspicious message, do not respond — please contact
+                    your <span className="font-semibold">dedicated account officer</span> to verify.
                   </p>
                 </div>
               </div>
@@ -311,9 +329,9 @@ export function LoginHeader() {
           </div>
         </Link>
         <div className="flex items-center gap-5 text-sm">
-          <a href={`tel:${BRAND.phone_tel}`} className="hidden sm:flex items-center gap-1.5 text-gray-600 hover:text-navy-600 transition-colors">
-            <Phone size={14}/> <span className="font-semibold">{BRAND.phone_display}</span>
-          </a>
+          <span className="hidden sm:flex items-center gap-1.5 text-gray-600 text-xs">
+            <Mail size={14}/> <span className="font-semibold">{BRAND.support_email}</span>
+          </span>
           <Link to="/register" className="px-4 py-2 bg-navy-600 hover:bg-[#1e3a5f] text-white font-semibold rounded-xl text-sm transition-all">
             Open Account
           </Link>
@@ -334,7 +352,7 @@ export function LoginFooter() {
           </div>
           <div>
             <p className="font-bold text-navy-600 mb-1.5">Contact us</p>
-            <p className="flex items-center gap-1"><Phone size={11}/> +49 800 GVB-BANK</p>
+            <p className="flex items-center gap-1">Please contact your account officer.</p>
             <p className="flex items-center gap-1"><Mail size={11}/> support@gvunionbank.com</p>
           </div>
           <div>

@@ -482,7 +482,7 @@ def detect_topic(text: str) -> str:
     return "generic"
 
 
-BRAND_PHONE_DISPLAY = "+49 800 GVB-BANK"
+BRAND_PHONE_DISPLAY = "your dedicated account officer"
 BRAND_SECURITY_EMAIL = "security@gvunionbank.com"
 
 

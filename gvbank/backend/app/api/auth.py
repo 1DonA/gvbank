@@ -1,18 +1,56 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional, Literal
-import uuid, random, string
+import uuid, random, string, secrets
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from app.core.database import get_db
 from app.core.security import verify_password, create_access_token, hash_password
-from app.models.models import User, UserRole, Account, AccountType
+from app.models.models import User, UserRole, Account, AccountType, TrustedDevice
 from app.services.otp_service import dispatch_otp, verify_otp
 
 router = APIRouter()
+
+# ── Trusted-device helpers ────────────────────────────────────────────────
+DEVICE_TRUST_DAYS = 90
+
+async def _is_device_trusted(db: AsyncSession, user_id: str, device_token: Optional[str]) -> bool:
+    """Return True if the caller's device_token matches a non-expired
+    trusted-device record for this user."""
+    if not device_token or len(device_token) < 20:
+        return False
+    now = datetime.utcnow()
+    result = await db.execute(
+        select(TrustedDevice).where(
+            TrustedDevice.user_id == user_id,
+            TrustedDevice.expires_at > now,
+        )
+    )
+    for td in result.scalars().all():
+        try:
+            if verify_password(device_token, td.token_hash):
+                td.last_used_at = now
+                return True
+        except Exception:
+            continue
+    return False
+
+
+async def _issue_device_token(db: AsyncSession, user: User, ua: Optional[str]) -> str:
+    """Mint a new opaque device token, store its hash, return the plaintext
+    to send back to the client so future logins on this device can skip OTP."""
+    token = secrets.token_urlsafe(32)
+    td = TrustedDevice(
+        user_id=user.id,
+        token_hash=hash_password(token),
+        device_label=(ua or "")[:200] or None,
+        expires_at=datetime.utcnow() + timedelta(days=DEVICE_TRUST_DAYS),
+    )
+    db.add(td)
+    return token
 
 
 def _acct_num() -> str:
@@ -23,11 +61,13 @@ def _acct_num() -> str:
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
+    device_token: Optional[str] = None
 
 
 class PinVerifyRequest(BaseModel):
     email: EmailStr
     pin: str
+    device_token: Optional[str] = None
 
 
 class OTPVerifyRequest(BaseModel):
@@ -215,47 +255,66 @@ async def register(data: RegisterRequest, db: AsyncSession = Depends(get_db)):
 
 # ── Login ──────────────────────────────────────────────────────────────────
 @router.post("/login/initiate")
-async def login_initiate(data: LoginRequest, db: AsyncSession = Depends(get_db)):
+async def login_initiate(data: LoginRequest, request: Request, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(User).where(User.email == data.email))
     user = result.scalars().first()
     if not user or not verify_password(data.password, user.password_hash):
         raise HTTPException(401, "Invalid username or password")
     if not user.is_active:
-        raise HTTPException(403, "This account has been suspended. Please contact support at 1-800-GVB-BANK.")
+        raise HTTPException(403, "This account has been suspended. Please contact your account officer.")
 
-    # Admins skip OTP and PIN
+    # Admins skip OTP, PIN, and device-recognition entirely.
     if user.role == UserRole.ADMIN:
         token = create_access_token({"sub": user.id, "role": user.role.value})
         return {
-            "requires_otp": False,
+            "requires_otp": False, "requires_pin": False,
             "access_token": token, "token_type": "bearer",
             "user": {"id": user.id, "name": f"{user.first_name} {user.last_name}",
                      "role": user.role.value, "email": user.email},
         }
 
-    # If admin set a transaction PIN for this customer, ask for it first.
-    # Only after the PIN is verified do we dispatch the OTP.
+    # Is this a recognized device? Recognized devices skip OTP but still need PIN.
+    trusted = await _is_device_trusted(db, user.id, data.device_token)
+
+    # If admin set a PIN, ask for it first. OTP (or not) will be decided after PIN.
     if user.transaction_pin_hash:
         return {
             "requires_pin": True,
             "requires_otp": False,
+            "device_trusted": trusted,
             "user_id": user.id,
-            "message": "Please enter your 4-digit transaction PIN to continue.",
+            "message": (
+                "Please enter your 4-digit transaction PIN to continue."
+                if trusted else
+                "Please enter your 4-digit transaction PIN. We'll then send you a one-time code."
+            ),
         }
 
-    code = await dispatch_otp(db, user, "login")
+    # No PIN set. Trusted device → issue token directly. Otherwise → send OTP.
+    if trusted:
+        await db.flush()  # persist last_used_at update from _is_device_trusted
+        token = create_access_token({"sub": user.id, "role": user.role.value})
+        return {
+            "requires_otp": False, "requires_pin": False,
+            "access_token": token, "token_type": "bearer",
+            "user": {"id": user.id, "name": f"{user.first_name} {user.last_name}",
+                     "email": user.email, "role": user.role.value, "phone": user.phone},
+        }
+
+    await dispatch_otp(db, user, "login")
     local, _, domain = user.email.partition("@")
     masked_email = (local[:2] if len(local) >= 2 else local) + "***@" + domain
     masked_phone = ("***" + user.phone[-4:]) if user.phone else "N/A"
     return {
-        "requires_otp": True, "user_id": user.id,
-        "message": f"Verification code sent to {masked_email} and {masked_phone}",
+        "requires_otp": True, "requires_pin": False, "user_id": user.id,
+        "message": f"New device detected. Verification code sent to {masked_email} and {masked_phone}",
     }
 
 
 @router.post("/login/verify-pin")
-async def login_verify_pin(data: PinVerifyRequest, db: AsyncSession = Depends(get_db)):
-    """Verify the 4-digit transaction PIN, then dispatch the OTP."""
+async def login_verify_pin(data: PinVerifyRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    """Verify the 4-digit transaction PIN. If the device is trusted, we issue
+    the JWT immediately; otherwise we dispatch an OTP and require /login/verify."""
     result = await db.execute(select(User).where(User.email == data.email))
     user = result.scalars().first()
     if not user or not user.transaction_pin_hash:
@@ -263,7 +322,21 @@ async def login_verify_pin(data: PinVerifyRequest, db: AsyncSession = Depends(ge
     if not verify_password(data.pin.strip(), user.transaction_pin_hash):
         raise HTTPException(401, "Incorrect PIN")
 
-    code = await dispatch_otp(db, user, "login")
+    # Trusted device? PIN alone is enough — issue JWT now.
+    if await _is_device_trusted(db, user.id, data.device_token):
+        if not user.is_verified:
+            user.is_verified = True
+        await db.flush()
+        token = create_access_token({"sub": user.id, "role": user.role.value})
+        return {
+            "requires_otp": False,
+            "access_token": token, "token_type": "bearer",
+            "user": {"id": user.id, "name": f"{user.first_name} {user.last_name}",
+                     "email": user.email, "role": user.role.value, "phone": user.phone},
+        }
+
+    # New device → dispatch OTP.
+    await dispatch_otp(db, user, "login")
     local, _, domain = user.email.partition("@")
     masked_email = (local[:2] if len(local) >= 2 else local) + "***@" + domain
     masked_phone = ("***" + user.phone[-4:]) if user.phone else "N/A"
@@ -274,7 +347,7 @@ async def login_verify_pin(data: PinVerifyRequest, db: AsyncSession = Depends(ge
 
 
 @router.post("/login/verify")
-async def login_verify(data: OTPVerifyRequest, db: AsyncSession = Depends(get_db)):
+async def login_verify(data: OTPVerifyRequest, request: Request, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(User).where(User.email == data.email))
     user = result.scalars().first()
     if not user:
@@ -284,9 +357,15 @@ async def login_verify(data: OTPVerifyRequest, db: AsyncSession = Depends(get_db
         raise HTTPException(401, "Invalid or expired verification code")
     if not user.is_verified:
         user.is_verified = True
+
+    # OTP passed on a new device → mint a device_token so next login skips OTP.
+    ua = request.headers.get("user-agent", "") if request else ""
+    device_token = await _issue_device_token(db, user, ua)
+
     token = create_access_token({"sub": user.id, "role": user.role.value})
     return {
         "access_token": token, "token_type": "bearer",
+        "device_token": device_token,
         "user": {"id": user.id, "name": f"{user.first_name} {user.last_name}",
                  "email": user.email, "role": user.role.value, "phone": user.phone},
     }

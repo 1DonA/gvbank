@@ -42,14 +42,6 @@ function CustomerLayout({ children }: { children: React.ReactNode }) {
         </div>
         <div className="flex items-center gap-3">
           <span className="text-xs text-gray-500 hidden sm:block">{user?.name}</span>
-          <a href="tel:+498004822265" title="Call support"
-             className="hidden sm:flex items-center gap-1.5 text-xs font-semibold text-navy-600 hover:underline">
-            <Phone size={13}/> <span className="font-mono">+49 800 GVB-BANK</span>
-          </a>
-          <a href="tel:+498004822265" title="Call support"
-             className="sm:hidden w-8 h-8 rounded-full bg-gray-100 text-navy-600 flex items-center justify-center">
-            <Phone size={14}/>
-          </a>
           <button onClick={logout} title="Sign out"
                   className="text-gray-400 hover:text-red-500 transition-colors"><LogOut size={18}/></button>
         </div>

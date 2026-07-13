@@ -164,9 +164,6 @@ function MainBar({ section, showProductNav }: { section: Section; showProductNav
         )}
 
         <div className="ml-auto flex items-center gap-3">
-          <a href={`tel:${BRAND.phone_tel}`} className="hidden md:flex items-center gap-1.5 text-sm text-gray-600 hover:text-navy-600 transition-colors">
-            <Phone size={14}/> <span className="font-semibold">{BRAND.phone_display}</span>
-          </a>
           <Link to="/login" className="hidden sm:inline-block text-sm font-semibold text-navy-600 hover:underline">
             {t('cta.sign_in')}
           </Link>

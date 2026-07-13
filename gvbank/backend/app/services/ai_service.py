@@ -48,7 +48,7 @@ def _system_prompt(customer: User, agent_name: str) -> str:
         "- Sapphire Preferred credit card: 100,000-point welcome bonus, €95 annual fee.\n"
         "- Mortgages from 6.49% APR. Auto loans from 5.99% APR.\n"
         "- Wire fees: €25 domestic, €45 international. Zelle/ACH free.\n"
-        "- Currency shown in the app is €. Support phone: +49 800 GVB-BANK.\n"
+        "- Currency shown in the app is €. For account-specific issues, direct customers to their dedicated account officer.\n"
         "- Hours: Mon–Fri 08:00–18:00 CET, Sat 09:00–14:00 CET. 24/7 fraud line.\n"
         "- Transfers: internal instant, ACH 1–3 days, wires same-day (domestic), "
         "  international 1–4 days.\n"

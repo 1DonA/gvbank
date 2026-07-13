@@ -40,11 +40,18 @@ api.interceptors.response.use(
 
 export default api
 
+// ── Device recognition helpers ─────────────────────────────────────────────
+// Opaque per-user, per-device token used to skip OTP on trusted devices.
+// The backend hashes and stores this; we just keep the plaintext in localStorage.
+const deviceToken = () => localStorage.getItem('gv_device') || undefined
+export const setDeviceToken = (t: string) => localStorage.setItem('gv_device', t)
+const withDevice = (d: any) => ({ ...d, device_token: deviceToken() })
+
 // ── Auth ────────────────────────────────────────────────────────────────────
 export const authAPI = {
   register:     (d: any)                    => api.post('/auth/register', d),
-  loginInit:    (d: any)                    => api.post('/auth/login/initiate', d),
-  loginVerifyPin: (d: any)                  => api.post('/auth/login/verify-pin', d),
+  loginInit:    (d: any)                    => api.post('/auth/login/initiate', withDevice(d)),
+  loginVerifyPin: (d: any)                  => api.post('/auth/login/verify-pin', withDevice(d)),
   loginVerify:  (d: any)                    => api.post('/auth/login/verify', d),
   forgotPassword: (email: string)           => api.post('/auth/forgot-password', { email }),
   resetPassword:  (d: any)                  => api.post('/auth/reset-password', d),

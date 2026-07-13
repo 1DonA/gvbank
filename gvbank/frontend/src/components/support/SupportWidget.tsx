@@ -199,9 +199,9 @@ function ChatPanel({ onClose }: { onClose: () => void }) {
 
       {/* Quick actions strip */}
       <div className="bg-gray-50 border-b border-gray-100 px-4 py-2 flex items-center gap-2 text-xs">
-        <a href="tel:+498004822265" className="flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-gray-100 rounded-full text-navy-600 font-semibold transition-colors">
-          <Phone size={11}/> +49 800 GVB-BANK
-        </a>
+        <span className="flex items-center gap-1.5 px-3 py-1.5 bg-white rounded-full text-navy-600 font-semibold">
+          Contact your account officer
+        </span>
         <span className="text-gray-400 hidden sm:inline">·</span>
         <span className="text-gray-500 hidden sm:inline">Avg reply time: ~2 min</span>
       </div>

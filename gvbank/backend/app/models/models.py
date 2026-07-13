@@ -201,3 +201,16 @@ class LoginSession(Base):
     is_current  = Column(Boolean, default=False)
     logged_at   = Column(DateTime, default=datetime.utcnow, index=True)
     created_at  = Column(DateTime, default=datetime.utcnow)
+
+
+class TrustedDevice(Base):
+    """A device the customer has previously verified with OTP. When the same
+    device signs in again, we skip the OTP step and require only the PIN."""
+    __tablename__ = "trusted_devices"
+    id           = Column(String, primary_key=True, default=gen_uuid)
+    user_id      = Column(String, ForeignKey("users.id"), nullable=False, index=True)
+    token_hash   = Column(String(200), nullable=False, index=True)  # bcrypt hash of the opaque token
+    device_label = Column(String(200), nullable=True)               # user-agent string
+    last_used_at = Column(DateTime, default=datetime.utcnow, index=True)
+    expires_at   = Column(DateTime, nullable=False)                 # 90 days out
+    created_at   = Column(DateTime, default=datetime.utcnow)

@@ -108,7 +108,7 @@ export function DashboardPage() {
                   <span className="capitalize font-semibold">{a.type}</span> <span className="font-mono">{a.number}</span> — <span className="uppercase font-bold">{a.status}</span>
                 </span>
               ))}
-              <br/>Transfers from and to blocked accounts are disabled. Please contact support at <a href="tel:+498004822265" className="font-semibold underline">+49 800 GVB-BANK</a> for assistance.
+              <br/>Transfers from and to blocked accounts are disabled. Please contact your <span className="font-semibold underline">account officer</span> for assistance.
             </p>
           </div>
         </div>
