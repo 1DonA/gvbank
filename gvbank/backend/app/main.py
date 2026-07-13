@@ -1,17 +1,31 @@
+import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api import auth, users, accounts, transactions, admin, otp, support
 from app.core.database import engine, Base
 
+logger = logging.getLogger(__name__)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Create tables on startup
+    # 1. Create tables if they don't exist yet.
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+    # 2. Auto-seed the admin + demo customers on the FIRST startup only.
+    #    This is a no-op after the first successful run — checks for existing
+    #    users and skips if the DB already has data. Lets you deploy on a plan
+    #    that has no shell access and still get an initial admin login.
+    try:
+        from seed import seed_if_empty
+        await seed_if_empty()
+    except Exception as e:
+        logger.error("Auto-seed on startup failed (non-fatal): %s", e)
+
     yield
-    # (No teardown needed; engine.dispose() not required for sqlite)
+    # (No teardown required.)
 
 
 app = FastAPI(title="GV Union Bank API", version="1.0.0", lifespan=lifespan)
