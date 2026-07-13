@@ -8,11 +8,13 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
   <meta name="apple-mobile-web-app-title" content="GV Union Bank"/>
 
-  <!-- Favicon (browser tab). SVG scales cleanly at every size. -->
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg"/>
-  <link rel="mask-icon" href="/favicon.svg" color="#c9a84c"/>
-  <link rel="apple-touch-icon" href="/apple-touch-icon.svg"/>
-  <link rel="shortcut icon" href="/favicon.svg"/>
+  <!-- Favicon (browser tab). SVG scales cleanly at every size.
+       Version query bypasses stale browser cache. Bump ?v=N whenever the
+       icon changes so users pick it up immediately. -->
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=2"/>
+  <link rel="mask-icon" href="/favicon.svg?v=2" color="#c9a84c"/>
+  <link rel="apple-touch-icon" href="/apple-touch-icon.svg?v=2"/>
+  <link rel="shortcut icon" href="/favicon.svg?v=2"/>
 
   <link rel="manifest" href="/manifest.json"/>
   <link rel="preconnect" href="https://fonts.googleapis.com"/>

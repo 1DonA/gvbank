@@ -518,6 +518,16 @@ def _serialize_message(m: SupportMessage) -> dict:
     }
 
 
+async def _fetch_chat_messages(db: AsyncSession, chat_id: str, include_deleted: bool = False) -> list[SupportMessage]:
+    """Explicit message query that always works — never triggers async lazy-load
+    from chat.messages relationship (which fails with MissingGreenlet)."""
+    q = select(SupportMessage).where(SupportMessage.chat_id == chat_id).order_by(SupportMessage.created_at)
+    if not include_deleted:
+        q = q.where(SupportMessage.is_deleted != True)
+    result = await db.execute(q)
+    return list(result.scalars().all())
+
+
 async def _get_or_create_chat(db: AsyncSession, customer: User) -> SupportChat:
     # Eagerly load messages via selectinload — accessing chat.messages later
     # in async SQLAlchemy without this would raise MissingGreenlet.
@@ -588,8 +598,8 @@ async def my_chat(
     await db.flush()
     online = (await get_setting(db, "support_online")).lower() == "true"
     offline_msg = await get_setting(db, "support_offline_message")
-    admin_has_replied = any(m.sender_type == "admin" for m in chat.messages)
-    # Which specialist is on this chat (deterministic per chat).
+    messages = await _fetch_chat_messages(db, chat.id)
+    admin_has_replied = any(m.sender_type == "admin" for m in messages)
     agent = agent_for_chat(chat.id) if admin_has_replied else None
     return {
         "chat_id": chat.id,
@@ -599,7 +609,7 @@ async def my_chat(
         "human_requested": bool(chat.subject and chat.subject.startswith("🔴")),
         "bot_muted": admin_has_replied,
         "assigned_agent": agent,
-        "messages": [_serialize_message(m) for m in chat.messages if not (m.is_deleted or False)],
+        "messages": [_serialize_message(m) for m in messages],
     }
 
 
@@ -651,10 +661,8 @@ async def customer_send(
 
         # ── Bot muting: if an admin has replied in this chat, the human agent
         #    has taken over. Skip the auto-reply so the bot doesn't interrupt.
-        #    The customer's message still lands in the admin's inbox — they just
-        #    won't get an automated response back. On chat reset (new session),
-        #    the admin messages are gone and the bot resumes.
-        admin_has_replied = any(m.sender_type == "admin" for m in chat.messages)
+        chat_messages = await _fetch_chat_messages(db, chat.id, include_deleted=True)
+        admin_has_replied = any(m.sender_type == "admin" for m in chat_messages)
         if admin_has_replied:
             logger.info(
                 "support.send  user=%s  topic=%s  bot_muted=admin_active",
@@ -678,7 +686,7 @@ async def customer_send(
                 reply_text = await generate_ai_reply(
                     customer=current_user,
                     agent_name=agent_name,
-                    recent_messages=list(chat.messages),
+                    recent_messages=chat_messages,
                     new_message=body.text,
                 )
                 if reply_text:
@@ -796,6 +804,7 @@ async def admin_get_chat(
     # Mark admin-side as read
     chat.unread_by_admin = 0
     await db.flush()
+    messages = await _fetch_chat_messages(db, chat.id)
     return {
         "chat_id": chat.id,
         "status": chat.status,
@@ -808,7 +817,7 @@ async def admin_get_chat(
             "phone": u.phone,
             "avatar": u.profile_picture,
         },
-        "messages": [_serialize_message(m) for m in chat.messages if not (m.is_deleted or False)],
+        "messages": [_serialize_message(m) for m in messages],
     }
 
 
@@ -879,7 +888,8 @@ async def reset_my_chat(
 
     if chat:
         # Delete all messages one-by-one (keep the chat row).
-        for m in list(chat.messages):
+        existing_messages = await _fetch_chat_messages(db, chat.id, include_deleted=True)
+        for m in existing_messages:
             await db.delete(m)
         chat.unread_by_customer = 0
         chat.unread_by_admin = 0
