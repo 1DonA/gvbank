@@ -209,7 +209,7 @@ export function LoginPage() {
                     {loading ? 'Verifying…' : 'Verify PIN & Continue'}
                   </button>
                   <p className="text-center text-xs text-gray-400 mt-3">
-                    Forgot your PIN? Call us at <span className="font-mono font-semibold">{BRAND.phone_display}</span>
+                    Forgot your PIN? Please <span className="font-semibold">contact your account officer</span>.
                   </p>
                 </>
               )}
