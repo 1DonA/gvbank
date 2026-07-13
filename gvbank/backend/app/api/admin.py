@@ -196,6 +196,7 @@ async def get_user_detail(user_id: str,
             "role": user.role.value, "is_verified": user.is_verified,
             "is_active": user.is_active,
             "profile_picture": user.profile_picture,
+            "has_pin": bool(user.transaction_pin_hash),
             "created_at": user.created_at.isoformat(),
         },
         "accounts": [{
@@ -227,6 +228,40 @@ async def get_user_detail(user_id: str,
 
 class ResetPasswordBody(BaseModel):
     new_password: str
+
+
+class SetPinBody(BaseModel):
+    pin: str    # 4 digits
+
+
+@router.post("/users/{user_id}/pin")
+async def admin_set_pin(user_id: str, body: SetPinBody,
+                        db: AsyncSession = Depends(get_db), _=Depends(require_admin)):
+    """Set (or update) the customer's 4-digit transaction PIN.
+    If set, the customer will be prompted for it on login and on transfers."""
+    pin = (body.pin or "").strip()
+    if not pin.isdigit() or len(pin) != 4:
+        raise HTTPException(400, "PIN must be exactly 4 digits")
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalars().first()
+    if not user:
+        raise HTTPException(404, "User not found")
+    user.transaction_pin_hash = hash_password(pin)
+    await db.flush()
+    return {"message": "Transaction PIN set"}
+
+
+@router.delete("/users/{user_id}/pin")
+async def admin_clear_pin(user_id: str,
+                          db: AsyncSession = Depends(get_db), _=Depends(require_admin)):
+    """Clear the transaction PIN — customer will no longer be prompted for it."""
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalars().first()
+    if not user:
+        raise HTTPException(404, "User not found")
+    user.transaction_pin_hash = None
+    await db.flush()
+    return {"message": "Transaction PIN cleared"}
 
 
 @router.post("/users/{user_id}/password")

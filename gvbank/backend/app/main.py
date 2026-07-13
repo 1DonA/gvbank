@@ -8,11 +8,29 @@ from app.core.database import engine, Base
 logger = logging.getLogger(__name__)
 
 
+async def _run_migrations(conn):
+    """Add columns introduced after initial deploy. Idempotent — each ALTER
+    is wrapped in try/except so re-runs are safe. Works on Postgres + SQLite."""
+    from sqlalchemy import text
+    migrations = [
+        # (table, column, column_type)
+        ("users", "transaction_pin_hash", "VARCHAR(200)"),
+    ]
+    for table, column, coltype in migrations:
+        try:
+            await conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {coltype}"))
+            logger.info("Migration: added %s.%s", table, column)
+        except Exception:
+            # Column already exists — safe to ignore.
+            pass
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # 1. Create tables if they don't exist yet.
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await _run_migrations(conn)
 
     # 2. Auto-seed the admin + demo customers on the FIRST startup only.
     #    This is a no-op after the first successful run — checks for existing

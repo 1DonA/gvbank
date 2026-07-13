@@ -44,6 +44,7 @@ export default api
 export const authAPI = {
   register:     (d: any)                    => api.post('/auth/register', d),
   loginInit:    (d: any)                    => api.post('/auth/login/initiate', d),
+  loginVerifyPin: (d: any)                  => api.post('/auth/login/verify-pin', d),
   loginVerify:  (d: any)                    => api.post('/auth/login/verify', d),
   forgotPassword: (email: string)           => api.post('/auth/forgot-password', { email }),
   resetPassword:  (d: any)                  => api.post('/auth/reset-password', d),
@@ -102,6 +103,8 @@ export const adminAPI = {
   updateUser:      (id: string, d: any)     => api.patch(`/admin/users/${id}`, d),
   resetPassword:   (id: string, new_password: string) =>
     api.post(`/admin/users/${id}/password`, { new_password }),
+  setUserPin:      (id: string, pin: string) => api.post(`/admin/users/${id}/pin`, { pin }),
+  clearUserPin:    (id: string) => api.delete(`/admin/users/${id}/pin`),
   openAccountForUser: (id: string, d: any)  =>
     api.post(`/admin/users/${id}/accounts`, d),
 

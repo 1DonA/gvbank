@@ -74,6 +74,10 @@ class User(Base):
     security_question = Column(String(200), nullable=True)
     security_answer_hash = Column(String(200), nullable=True)
 
+    # 4-digit transaction PIN — required for login and transfers if set.
+    # Admin can set/clear this per customer. Stored bcrypt-hashed.
+    transaction_pin_hash = Column(String(200), nullable=True)
+
     # Consent / disclosures (PATRIOT Act, Truth in Savings, eSign)
     consented_at = Column(DateTime, nullable=True)
 

@@ -129,6 +129,7 @@ export function TransferPage() {
   const [step, setStep] = useState<Step>('method')
   const [form, setForm] = useState<FormState>(initialForm())
   const [otp, setOtp] = useState<string[]>(Array(6).fill(''))
+  const [pin, setPin] = useState<string>('')
   const [receipt, setReceipt] = useState<any>(null)
   const [txRef, setTxRef] = useState('')
 
@@ -236,6 +237,7 @@ export function TransferPage() {
       wire_purpose:         form.wire_purpose         || null,
       memo:                 form.memo                 || null,
       target_currency:      form.target_currency      || 'EUR',
+      pin:                  pin || null,
     })
   }
 
@@ -255,6 +257,7 @@ export function TransferPage() {
   const startOver = () => {
     setForm(initialForm())
     setOtp(Array(6).fill(''))
+    setPin('')
     setReceipt(null)
     setTxRef('')
     setStep('method')
@@ -275,7 +278,7 @@ export function TransferPage() {
       {step === 'method'      && <MethodStep form={form} accounts={accounts} upd={upd} next={goToBeneficiary}/>}
       {step === 'beneficiary' && <BeneficiaryStep form={form} accounts={accounts} upd={upd} setForm={setForm} recents={recentRecipients} back={() => setStep('method')} next={goToAmount}/>}
       {step === 'amount'      && <AmountStep form={form} source={sourceAccount} amountNum={amountNum} feeAmount={feeAmount} totalDebit={totalDebit} upd={upd} currencies={currencies} back={() => setStep('beneficiary')} next={goToReview}/>}
-      {step === 'review'      && <ReviewStep form={form} accounts={accounts} amountNum={amountNum} feeAmount={feeAmount} totalDebit={totalDebit} sending={initMutation.isPending} back={() => setStep('amount')} confirm={submitTransfer}/>}
+      {step === 'review'      && <ReviewStep form={form} accounts={accounts} amountNum={amountNum} feeAmount={feeAmount} totalDebit={totalDebit} sending={initMutation.isPending} pin={pin} setPin={setPin} back={() => setStep('amount')} confirm={submitTransfer}/>}
       {step === 'authorize'   && <AuthorizeStep otp={otp} setOtp={setOtp} pending={verifyMutation.isPending} submit={submitOtp} resend={resendOtp} cancel={() => setStep('review')}/>}
       {step === 'receipt'     && receipt && <ReceiptStep form={form} receipt={receipt} startOver={startOver}/>}
     </div>
@@ -693,7 +696,7 @@ function AmountStep({ form, source, amountNum, feeAmount, totalDebit, upd, curre
 }
 
 // ── Step 4: review & confirm ──────────────────────────────────────────────
-function ReviewStep({ form, accounts, amountNum, feeAmount, totalDebit, sending, back, confirm }: any) {
+function ReviewStep({ form, accounts, amountNum, feeAmount, totalDebit, sending, pin, setPin, back, confirm }: any) {
   const m = form.method as Method
   const source = accounts.find((a: any) => a.id === form.from_account_id)
   const destAcc = m === 'internal' ? accounts.find((a: any) => a.id === form.to_destination) : null
@@ -756,6 +759,44 @@ function ReviewStep({ form, accounts, amountNum, feeAmount, totalDebit, sending,
           </div>
         </div>
       )}
+
+      {/* 4-digit transaction PIN (required if admin has set one) */}
+      <div className="bg-white rounded-2xl border border-gray-100 p-5">
+        <div className="flex items-center gap-2 mb-2">
+          <span className="text-sm font-semibold text-gray-900">Transaction PIN</span>
+          <span className="text-xs text-gray-500">— required if your account has a PIN set</span>
+        </div>
+        <div className="flex gap-3">
+          {[0,1,2,3].map(i => (
+            <input
+              key={i}
+              id={`tx-pin-${i}`}
+              type="password"
+              inputMode="numeric"
+              maxLength={1}
+              value={pin[i] || ''}
+              onChange={e => {
+                const v = e.target.value.replace(/\D/g, '')
+                const arr = (pin || '').padEnd(4, ' ').split('')
+                arr[i] = v || ' '
+                setPin(arr.join('').replace(/ /g, ''))
+                if (v && i < 3) {
+                  const el = document.getElementById(`tx-pin-${i+1}`) as HTMLInputElement | null
+                  el?.focus()
+                }
+              }}
+              onKeyDown={e => {
+                if (e.key === 'Backspace' && !(pin[i]) && i > 0) {
+                  const el = document.getElementById(`tx-pin-${i-1}`) as HTMLInputElement | null
+                  el?.focus()
+                }
+              }}
+              className="w-14 h-14 text-center text-2xl font-bold border-2 border-gray-200 rounded-xl focus:border-navy-600 focus:outline-none"
+            />
+          ))}
+        </div>
+        <p className="text-xs text-gray-500 mt-2">Leave blank if you have not been issued a PIN.</p>
+      </div>
 
       <div className="flex justify-between">
         <button onClick={back} className="px-6 py-3 border border-gray-200 rounded-xl text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-all flex items-center gap-2">

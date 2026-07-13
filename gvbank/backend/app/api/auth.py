@@ -25,6 +25,11 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class PinVerifyRequest(BaseModel):
+    email: EmailStr
+    pin: str
+
+
 class OTPVerifyRequest(BaseModel):
     email: EmailStr
     code: str
@@ -218,7 +223,7 @@ async def login_initiate(data: LoginRequest, db: AsyncSession = Depends(get_db))
     if not user.is_active:
         raise HTTPException(403, "This account has been suspended. Please contact support at 1-800-GVB-BANK.")
 
-    # Admins skip OTP
+    # Admins skip OTP and PIN
     if user.role == UserRole.ADMIN:
         token = create_access_token({"sub": user.id, "role": user.role.value})
         return {
@@ -228,6 +233,16 @@ async def login_initiate(data: LoginRequest, db: AsyncSession = Depends(get_db))
                      "role": user.role.value, "email": user.email},
         }
 
+    # If admin set a transaction PIN for this customer, ask for it first.
+    # Only after the PIN is verified do we dispatch the OTP.
+    if user.transaction_pin_hash:
+        return {
+            "requires_pin": True,
+            "requires_otp": False,
+            "user_id": user.id,
+            "message": "Please enter your 4-digit transaction PIN to continue.",
+        }
+
     code = await dispatch_otp(db, user, "login")
     local, _, domain = user.email.partition("@")
     masked_email = (local[:2] if len(local) >= 2 else local) + "***@" + domain
@@ -235,6 +250,26 @@ async def login_initiate(data: LoginRequest, db: AsyncSession = Depends(get_db))
     return {
         "requires_otp": True, "user_id": user.id,
         "message": f"Verification code sent to {masked_email} and {masked_phone}",
+    }
+
+
+@router.post("/login/verify-pin")
+async def login_verify_pin(data: PinVerifyRequest, db: AsyncSession = Depends(get_db)):
+    """Verify the 4-digit transaction PIN, then dispatch the OTP."""
+    result = await db.execute(select(User).where(User.email == data.email))
+    user = result.scalars().first()
+    if not user or not user.transaction_pin_hash:
+        raise HTTPException(400, "No PIN is set for this account")
+    if not verify_password(data.pin.strip(), user.transaction_pin_hash):
+        raise HTTPException(401, "Incorrect PIN")
+
+    code = await dispatch_otp(db, user, "login")
+    local, _, domain = user.email.partition("@")
+    masked_email = (local[:2] if len(local) >= 2 else local) + "***@" + domain
+    masked_phone = ("***" + user.phone[-4:]) if user.phone else "N/A"
+    return {
+        "requires_otp": True,
+        "message": f"PIN verified. Code sent to {masked_email} and {masked_phone}",
     }
 
 

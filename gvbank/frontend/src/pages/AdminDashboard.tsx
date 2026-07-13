@@ -581,6 +581,22 @@ function UserDetailDrawer({ userId, onClose, onPost }: {
     },
     onError: (e: any) => toast.error(e.response?.data?.detail || 'Failed to update')
   })
+  const setPinMut = useMutation({
+    mutationFn: (pin: string) => adminAPI.setUserPin(userId, pin),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin-user-detail', userId] })
+      toast.success('Transaction PIN set')
+    },
+    onError: (e: any) => toast.error(e.response?.data?.detail || 'Failed to set PIN')
+  })
+  const clearPinMut = useMutation({
+    mutationFn: () => adminAPI.clearUserPin(userId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin-user-detail', userId] })
+      toast.success('Transaction PIN cleared')
+    },
+    onError: (e: any) => toast.error(e.response?.data?.detail || 'Failed to clear PIN')
+  })
   const onPick = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
@@ -672,6 +688,15 @@ function UserDetailDrawer({ userId, onClose, onPost }: {
                 {data.accounts.length === 0 && <p className="text-center text-gray-400 text-sm py-4">No accounts</p>}
               </div>
             </div>
+
+            {/* Transaction PIN management */}
+            <PinManager
+              hasPin={!!data.user.has_pin}
+              setPending={setPinMut.isPending}
+              clearPending={clearPinMut.isPending}
+              onSet={(pin: string) => setPinMut.mutate(pin)}
+              onClear={() => clearPinMut.mutate()}
+            />
 
             {/* Login sessions (editable) */}
             <AdminLoginSessions userId={data.user.id}/>
@@ -894,6 +919,89 @@ function SessionModal({ title, initial, presets, pending, onClose, onSubmit }: a
             {pending ? 'Saving…' : 'Save'}
           </button>
         </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Transaction PIN management ────────────────────────────────────────────
+function PinManager({ hasPin, setPending, clearPending, onSet, onClear }: {
+  hasPin: boolean
+  setPending: boolean
+  clearPending: boolean
+  onSet: (pin: string) => void
+  onClear: () => void
+}) {
+  const [pin, setPin] = useState('')
+  const [confirm, setConfirm] = useState('')
+
+  const submit = () => {
+    if (!/^\d{4}$/.test(pin)) { toast.error('PIN must be exactly 4 digits'); return }
+    if (pin !== confirm)       { toast.error('PINs do not match'); return }
+    onSet(pin)
+    setPin(''); setConfirm('')
+  }
+
+  return (
+    <div className="border-2 border-amber-100 bg-amber-50/40 rounded-2xl p-5">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h4 className="font-semibold text-gray-900 flex items-center gap-2">
+            <span>🔐</span> Transaction PIN
+          </h4>
+          <p className="text-xs text-gray-500 mt-0.5">
+            {hasPin
+              ? 'A 4-digit PIN is currently required for this customer to sign in and to authorize transfers.'
+              : 'No PIN is set. Setting one will require this customer to enter it on sign-in and before every transfer.'}
+          </p>
+        </div>
+        <span className={`text-xs px-2 py-0.5 rounded-full font-semibold flex-shrink-0
+          ${hasPin ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-700'}`}>
+          {hasPin ? 'ACTIVE' : 'NOT SET'}
+        </span>
+      </div>
+
+      <div className="mt-4 grid sm:grid-cols-2 gap-3">
+        <div>
+          <label className="text-xs font-semibold text-gray-700">New 4-digit PIN</label>
+          <input
+            type="password"
+            inputMode="numeric"
+            maxLength={4}
+            value={pin}
+            onChange={e => setPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+            className="w-full mt-1 border border-gray-200 rounded-lg px-3 py-2 text-sm tracking-widest font-mono focus:outline-none focus:border-navy-600"
+            placeholder="••••"
+          />
+        </div>
+        <div>
+          <label className="text-xs font-semibold text-gray-700">Confirm PIN</label>
+          <input
+            type="password"
+            inputMode="numeric"
+            maxLength={4}
+            value={confirm}
+            onChange={e => setConfirm(e.target.value.replace(/\D/g, '').slice(0, 4))}
+            className="w-full mt-1 border border-gray-200 rounded-lg px-3 py-2 text-sm tracking-widest font-mono focus:outline-none focus:border-navy-600"
+            placeholder="••••"
+          />
+        </div>
+      </div>
+
+      <div className="flex gap-2 mt-3">
+        <button onClick={submit} disabled={setPending || pin.length < 4 || confirm.length < 4}
+          className="px-4 py-2 bg-navy-600 hover:bg-[#1e3a5f] text-white text-sm font-semibold rounded-lg disabled:opacity-60">
+          {setPending ? 'Saving…' : hasPin ? 'Replace PIN' : 'Set PIN'}
+        </button>
+        {hasPin && (
+          <button onClick={() => {
+            if (confirm && !window.confirm('Remove this customer\'s transaction PIN?')) return
+            onClear()
+          }} disabled={clearPending}
+            className="px-4 py-2 border-2 border-red-200 hover:bg-red-50 text-red-700 text-sm font-semibold rounded-lg disabled:opacity-60">
+            {clearPending ? 'Clearing…' : 'Clear PIN'}
+          </button>
+        )}
       </div>
     </div>
   )

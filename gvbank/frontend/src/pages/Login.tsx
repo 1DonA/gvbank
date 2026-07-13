@@ -11,12 +11,13 @@ import {
 } from 'lucide-react'
 import { BRAND } from '../brand'
 
-type Step = 'credentials' | 'otp'
+type Step = 'credentials' | 'pin' | 'otp'
 
 export function LoginPage() {
   const [step, setStep] = useState<Step>('credentials')
   const [loading, setLoading] = useState(false)
   const [otp, setOtp] = useState<string[]>(Array(6).fill(''))
+  const [pin, setPin] = useState<string[]>(Array(4).fill(''))
   const [showPw, setShowPw] = useState(false)
   const { setAuth, setPendingEmail, pendingEmail } = useAuthStore()
   const navigate = useNavigate()
@@ -27,16 +28,37 @@ export function LoginPage() {
     setLoading(true)
     try {
       const res = await authAPI.loginInit(data)
-      if (!res.data.requires_otp) {
+      // Admin path
+      if (!res.data.requires_otp && !res.data.requires_pin) {
         setAuth(res.data.user, res.data.access_token)
         navigate(res.data.user.role === 'admin' ? '/admin' : '/dashboard')
         return
       }
       setPendingEmail(data.email)
+      // PIN required?
+      if (res.data.requires_pin) {
+        setStep('pin')
+        toast('Enter your 4-digit PIN to continue.')
+        return
+      }
       setStep('otp')
       toast.success(res.data.message)
     } catch (e: any) {
       toast.error(e.response?.data?.detail || 'Sign-in failed. Please try again.')
+    } finally { setLoading(false) }
+  }
+
+  const onPIN = async () => {
+    const pinCode = pin.join('')
+    if (pinCode.length < 4) { toast.error('Enter your 4-digit PIN'); return }
+    setLoading(true)
+    try {
+      const res = await authAPI.loginVerifyPin({ email: pendingEmail, pin: pinCode })
+      toast.success(res.data.message || 'PIN accepted')
+      setStep('otp')
+    } catch (e: any) {
+      toast.error(e.response?.data?.detail || 'Incorrect PIN')
+      setPin(Array(4).fill(''))
     } finally { setLoading(false) }
   }
 
@@ -73,7 +95,7 @@ export function LoginPage() {
           {/* Sign-in card */}
           <div>
             <div className="bg-white rounded-2xl shadow-bank-lg p-8 sm:p-10 max-w-xl mx-auto lg:mx-0">
-              {step === 'credentials' ? (
+              {step === 'credentials' && (
                 <>
                   <div className="flex items-center gap-2 mb-2 text-xs text-green-700">
                     <Lock size={12}/> <span className="font-semibold tracking-wide uppercase">Secure Sign-In · 256-bit Encryption</span>
@@ -139,7 +161,60 @@ export function LoginPage() {
                     </Link>
                   </div>
                 </>
-              ) : (
+              )}
+
+              {step === 'pin' && (
+                <>
+                  <button onClick={() => setStep('credentials')}
+                    className="text-xs text-gray-500 hover:text-navy-600 mb-3 flex items-center gap-1">
+                    <ChevronLeft size={12}/> Back to sign in
+                  </button>
+                  <div className="text-center mb-4">
+                    <div className="w-16 h-16 rounded-2xl bg-navy-600 flex items-center justify-center mx-auto mb-4">
+                      <KeyRound size={28} className="text-gold-400"/>
+                    </div>
+                    <h2 className="font-serif text-2xl font-bold text-navy-600 mb-1">Enter your PIN</h2>
+                    <p className="text-gray-500 text-sm">Enter your 4-digit transaction PIN to continue.</p>
+                    <p className="text-xs text-gray-400 mt-1">{pendingEmail}</p>
+                  </div>
+                  <div className="flex justify-center gap-3 my-6">
+                    {pin.map((digit, i) => (
+                      <input
+                        key={i}
+                        id={`pin-${i}`}
+                        type="password"
+                        inputMode="numeric"
+                        maxLength={1}
+                        value={digit}
+                        onChange={e => {
+                          const v = e.target.value.replace(/\D/g, '')
+                          const next = [...pin]; next[i] = v; setPin(next)
+                          if (v && i < 3) {
+                            const el = document.getElementById(`pin-${i+1}`) as HTMLInputElement | null
+                            el?.focus()
+                          }
+                        }}
+                        onKeyDown={e => {
+                          if (e.key === 'Backspace' && !pin[i] && i > 0) {
+                            const el = document.getElementById(`pin-${i-1}`) as HTMLInputElement | null
+                            el?.focus()
+                          }
+                        }}
+                        className="w-14 h-16 text-center text-2xl font-bold border-2 border-gray-200 rounded-xl focus:border-navy-600 focus:outline-none"
+                      />
+                    ))}
+                  </div>
+                  <button onClick={onPIN} disabled={loading || pin.join('').length < 4}
+                    className="w-full py-4 bg-navy-600 text-white font-semibold rounded-xl hover:bg-[#1e3a5f] transition-all disabled:opacity-50 text-sm">
+                    {loading ? 'Verifying…' : 'Verify PIN & Continue'}
+                  </button>
+                  <p className="text-center text-xs text-gray-400 mt-3">
+                    Forgot your PIN? Call us at <span className="font-mono font-semibold">{BRAND.phone_display}</span>
+                  </p>
+                </>
+              )}
+
+              {step === 'otp' && (
                 <>
                   <button onClick={() => setStep('credentials')}
                     className="text-xs text-gray-500 hover:text-navy-600 mb-3 flex items-center gap-1">

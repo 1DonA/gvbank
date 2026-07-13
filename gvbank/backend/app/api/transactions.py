@@ -16,6 +16,7 @@ def _display_status(t: Transaction) -> str:
     return t.status.value
 from app.api.deps import get_current_user
 from app.services.otp_service import dispatch_otp, verify_otp
+from app.core.security import verify_password
 
 router = APIRouter()
 
@@ -105,6 +106,9 @@ class TransferInitiate(BaseModel):
     # Currency conversion (default EUR = source currency, no conversion)
     target_currency: Optional[str] = None                     # ISO code like USD/GBP/JPY
 
+    # Optional 4-digit PIN — required if the user has one set
+    pin: Optional[str] = None
+
 
 class TransferVerify(BaseModel):
     transfer_ref: str     # the pending Transaction.id
@@ -120,6 +124,15 @@ async def initiate_transfer(
 ):
     if data.amount <= 0:
         raise HTTPException(400, "Amount must be positive")
+
+    # PIN check — if the admin has set a transaction PIN on this customer,
+    # require it before we even look up accounts. Prevents someone with a
+    # stolen session from initiating a wire without knowing the PIN.
+    if current_user.transaction_pin_hash:
+        if not data.pin:
+            raise HTTPException(400, "A 4-digit transaction PIN is required to send a transfer")
+        if not verify_password(data.pin.strip(), current_user.transaction_pin_hash):
+            raise HTTPException(401, "Incorrect transaction PIN")
 
     # Load source account, ensure owned by current user and active
     result = await db.execute(
