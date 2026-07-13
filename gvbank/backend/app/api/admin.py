@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, delete as sa_delete
 from pydantic import BaseModel, EmailStr
 from typing import Optional
 from datetime import datetime
@@ -9,7 +9,7 @@ from app.core.database import get_db
 from app.core.security import hash_password
 from app.models.models import (
     User, Account, Transaction, TxStatus, AccountStatus, UserRole, AccountType, TxType,
-    LoginSession,
+    LoginSession, OTPCode, SupportChat, SupportMessage, TrustedDevice,
 )
 from app.api.deps import get_current_user, require_admin
 
@@ -149,6 +149,55 @@ async def block_user(user_id: str, db: AsyncSession = Depends(get_db), _=Depends
     user.is_active = not user.is_active
     action = "blocked" if not user.is_active else "unblocked"
     return {"message": f"User {action}", "is_active": user.is_active}
+
+
+@router.delete("/users/{user_id}")
+async def delete_user(user_id: str,
+                      db: AsyncSession = Depends(get_db),
+                      admin: User = Depends(require_admin)):
+    """Permanently delete a customer and every trace of them: accounts,
+    transactions, chats, OTPs, login sessions, trusted devices. Admins
+    cannot be deleted; you cannot delete yourself."""
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalars().first()
+    if not user:
+        raise HTTPException(404, "User not found")
+    if user.role == UserRole.ADMIN:
+        raise HTTPException(400, "Admin accounts cannot be deleted from this UI")
+    if admin.id == user.id:
+        raise HTTPException(400, "You cannot delete your own account")
+
+    label = f"{user.first_name} {user.last_name}"
+
+    # 1. Support: delete messages, then the chat row.
+    chat_res = await db.execute(select(SupportChat).where(SupportChat.customer_id == user_id))
+    chat = chat_res.scalars().first()
+    if chat:
+        await db.execute(sa_delete(SupportMessage).where(SupportMessage.chat_id == chat.id))
+        await db.execute(sa_delete(SupportChat).where(SupportChat.id == chat.id))
+
+    # 2. Transactions on this user's accounts.
+    acct_res = await db.execute(select(Account.id).where(Account.user_id == user_id))
+    acct_ids = [aid for (aid,) in acct_res.all()]
+    if acct_ids:
+        await db.execute(sa_delete(Transaction).where(Transaction.account_id.in_(acct_ids)))
+
+    # 3. Accounts.
+    await db.execute(sa_delete(Account).where(Account.user_id == user_id))
+
+    # 4. Admin-editable login sessions.
+    await db.execute(sa_delete(LoginSession).where(LoginSession.user_id == user_id))
+
+    # 5. OTP codes.
+    await db.execute(sa_delete(OTPCode).where(OTPCode.user_id == user_id))
+
+    # 6. Trusted-device records.
+    await db.execute(sa_delete(TrustedDevice).where(TrustedDevice.user_id == user_id))
+
+    # 7. The user themselves.
+    await db.execute(sa_delete(User).where(User.id == user_id))
+
+    return {"message": f"Deleted {label} and all associated data.", "id": user_id}
 
 
 class UpdateUserBody(BaseModel):

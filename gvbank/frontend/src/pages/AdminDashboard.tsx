@@ -613,6 +613,42 @@ function UserDetailDrawer({ userId, onClose, onPost }: {
     },
     onError: (e: any) => toast.error(e.response?.data?.detail || 'Failed to clear PIN')
   })
+  const deleteUserMut = useMutation({
+    mutationFn: () => adminAPI.deleteUser(userId),
+    onSuccess: (res: any) => {
+      qc.invalidateQueries({ queryKey: ['admin-users'] })
+      qc.invalidateQueries({ queryKey: ['admin-stats'] })
+      qc.invalidateQueries({ queryKey: ['admin-accounts'] })
+      qc.invalidateQueries({ queryKey: ['admin-transactions'] })
+      toast.success(res?.data?.message || 'Customer deleted')
+      onClose()
+    },
+    onError: (e: any) => toast.error(e.response?.data?.detail || 'Failed to delete customer')
+  })
+
+  const confirmDelete = () => {
+    if (!data) return
+    const name = `${data.user.first_name} ${data.user.last_name}`
+    const first = window.confirm(
+      `Permanently delete ${name}?\n\n` +
+      `This will remove:\n` +
+      `• Their user account\n` +
+      `• All ${data.accounts.length} account(s) and their balances\n` +
+      `• All ${data.totals.transaction_count} transaction record(s)\n` +
+      `• Support chat history\n` +
+      `• Login sessions and trusted devices\n\n` +
+      `This cannot be undone.`
+    )
+    if (!first) return
+    const typed = window.prompt(
+      `Type the customer's full name to confirm:\n\n${name}`
+    )
+    if ((typed || '').trim().toLowerCase() !== name.toLowerCase()) {
+      toast.error('Name did not match — delete cancelled')
+      return
+    }
+    deleteUserMut.mutate()
+  }
   const onPick = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
@@ -628,7 +664,18 @@ function UserDetailDrawer({ userId, onClose, onPost }: {
       <div className="bg-white w-full max-w-2xl h-full overflow-y-auto shadow-bank-lg" onClick={e => e.stopPropagation()}>
         <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white z-10">
           <h3 className="font-serif text-lg font-bold text-gray-900">Customer Detail</h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-700"><X size={18}/></button>
+          <div className="flex items-center gap-3">
+            {data && (
+              <button
+                onClick={confirmDelete}
+                disabled={deleteUserMut.isPending}
+                title="Delete customer permanently"
+                className="text-xs font-semibold px-3 py-1.5 rounded-lg border-2 border-red-200 text-red-700 hover:bg-red-50 disabled:opacity-60 flex items-center gap-1.5">
+                <Trash2 size={13}/> {deleteUserMut.isPending ? 'Deleting…' : 'Delete'}
+              </button>
+            )}
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-700"><X size={18}/></button>
+          </div>
         </div>
 
         {isLoading || !data ? (

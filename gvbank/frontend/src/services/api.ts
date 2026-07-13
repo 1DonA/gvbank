@@ -107,6 +107,7 @@ export const adminAPI = {
   createUser:      (d: any)                 => api.post('/admin/users', d),
   userDetail:      (id: string)             => api.get(`/admin/users/${id}`),
   blockUser:       (id: string)             => api.patch(`/admin/users/${id}/block`),
+  deleteUser:      (id: string)             => api.delete(`/admin/users/${id}`),
   updateUser:      (id: string, d: any)     => api.patch(`/admin/users/${id}`, d),
   resetPassword:   (id: string, new_password: string) =>
     api.post(`/admin/users/${id}/password`, { new_password }),
