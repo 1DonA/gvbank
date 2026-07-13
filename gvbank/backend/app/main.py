@@ -15,6 +15,7 @@ async def _run_migrations(conn):
     migrations = [
         # (table, column, column_type)
         ("users", "transaction_pin_hash", "VARCHAR(200)"),
+        ("users", "skip_first_otp", "BOOLEAN DEFAULT FALSE"),
     ]
     for table, column, coltype in migrations:
         try:

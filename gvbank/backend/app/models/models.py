@@ -78,6 +78,11 @@ class User(Base):
     # Admin can set/clear this per customer. Stored bcrypt-hashed.
     transaction_pin_hash = Column(String(200), nullable=True)
 
+    # When True, the customer's next successful login skips the OTP step.
+    # Set by admin at account creation (admin's setup = identity verified).
+    # Auto-cleared after the first successful login on any device.
+    skip_first_otp = Column(Boolean, default=False)
+
     # Consent / disclosures (PATRIOT Act, Truth in Savings, eSign)
     consented_at = Column(DateTime, nullable=True)
 

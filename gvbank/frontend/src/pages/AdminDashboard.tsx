@@ -445,6 +445,7 @@ function CreateCustomerModal({ onClose, onSubmit, pending }: {
     initial_checking_balance: '',
     initial_savings_balance: '',
     joined_at: '',
+    pin: '',
   })
 
   const submit = () => {
@@ -453,6 +454,9 @@ function CreateCustomerModal({ onClose, onSubmit, pending }: {
     }
     if (form.password.length < 6) {
       toast.error('Password must be at least 6 characters'); return
+    }
+    if (form.pin && !/^\d{4}$/.test(form.pin)) {
+      toast.error('PIN must be exactly 4 digits'); return
     }
     onSubmit({
       first_name: form.first_name.trim(),
@@ -464,6 +468,7 @@ function CreateCustomerModal({ onClose, onSubmit, pending }: {
       initial_checking_balance: parseFloat(form.initial_checking_balance || '0') || 0,
       initial_savings_balance: parseFloat(form.initial_savings_balance || '0') || 0,
       joined_at: form.joined_at || null,
+      pin: form.pin || null,
     })
   }
 
@@ -506,6 +511,16 @@ function CreateCustomerModal({ onClose, onSubmit, pending }: {
                    onChange={e => setForm({...form, password: e.target.value})} placeholder="Welcome2026!"/>
           </div>
           <div>
+            <label className="label">4-digit transaction PIN <span className="text-gray-400 normal-case font-normal">(optional — required at sign-in &amp; transfers)</span></label>
+            <input type="text" inputMode="numeric" maxLength={4} className="input font-mono tracking-widest"
+                   value={form.pin}
+                   onChange={e => setForm({...form, pin: e.target.value.replace(/\D/g, '').slice(0, 4)})}
+                   placeholder="e.g. 1234"/>
+            <p className="text-xs text-gray-400 mt-1">
+              Share this PIN with the customer securely. First login skips OTP (admin-verified).
+            </p>
+          </div>
+          <div>
             <label className="label">Address</label>
             <input className="input" value={form.address}
                    onChange={e => setForm({...form, address: e.target.value})} placeholder="123 Main St, City, ST"/>
@@ -531,7 +546,8 @@ function CreateCustomerModal({ onClose, onSubmit, pending }: {
             <p className="text-xs text-gray-400 mt-1">Leave blank to use today's date.</p>
           </div>
           <p className="text-xs text-gray-400 leading-relaxed">
-            New customer will be created with these accounts and can log in immediately with the temporary password.
+            New customer will be created with these accounts and can log in immediately with the temporary password
+            (plus the PIN, if you set one). Their first sign-in skips the OTP step; every device after that gets normal OTP protection.
             Savings account is only created if the opening balance is greater than 0.
           </p>
         </div>

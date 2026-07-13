@@ -50,6 +50,7 @@ class CreateUserBody(BaseModel):
     initial_checking_balance: float = 0.0
     initial_savings_balance: float = 0.0
     joined_at: Optional[str] = None    # ISO date — backdate the signup
+    pin: Optional[str] = None          # 4-digit transaction PIN (optional)
 
 
 @router.post("/users", status_code=201)
@@ -66,6 +67,14 @@ async def create_user(body: CreateUserBody,
         raise HTTPException(400, "Password must be at least 6 characters")
     if body.initial_checking_balance < 0 or body.initial_savings_balance < 0:
         raise HTTPException(400, "Initial balances must be non-negative")
+
+    # Optional PIN — must be 4 digits if provided
+    pin_hash = None
+    if body.pin:
+        pin_val = body.pin.strip()
+        if not (pin_val.isdigit() and len(pin_val) == 4):
+            raise HTTPException(400, "PIN must be exactly 4 digits")
+        pin_hash = hash_password(pin_val)
 
     # Optional backdated signup
     created_at = None
@@ -86,8 +95,14 @@ async def create_user(body: CreateUserBody,
         password_hash=hash_password(body.password),
         address=body.address or "",
         role=UserRole.CUSTOMER,
-        is_verified=True,   # admin-created users skip the verification step
+        is_verified=True,   # admin-created users skip email/phone verification
         is_active=True,
+        transaction_pin_hash=pin_hash,
+        # Admin creating this account counts as identity verification, so the
+        # customer can complete their FIRST login without OTP. After that first
+        # successful login (any device), this flag flips off and normal
+        # new-device OTP protection resumes.
+        skip_first_otp=True,
     )
     if created_at is not None:
         user_kwargs["created_at"] = created_at
@@ -110,12 +125,18 @@ async def create_user(body: CreateUserBody,
             balance=body.initial_savings_balance, apy=5.20,
         ))
 
+    msg = "Customer created. First login is password"
+    if pin_hash:
+        msg += " + PIN (no OTP)."
+    else:
+        msg += " (no OTP required for their first sign-in)."
     return {
         "id": user.id,
         "name": f"{user.first_name} {user.last_name}",
         "email": user.email,
         "phone": user.phone,
-        "message": "Customer created. They can log in immediately.",
+        "has_pin": bool(pin_hash),
+        "message": msg,
     }
 
 

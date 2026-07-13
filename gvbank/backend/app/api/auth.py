@@ -276,27 +276,36 @@ async def login_initiate(data: LoginRequest, request: Request, db: AsyncSession 
     # Is this a recognized device? Recognized devices skip OTP but still need PIN.
     trusted = await _is_device_trusted(db, user.id, data.device_token)
 
+    # Admin-created accounts get a one-time bypass on their first login.
+    first_login_bypass = bool(getattr(user, "skip_first_otp", False))
+
     # If admin set a PIN, ask for it first. OTP (or not) will be decided after PIN.
     if user.transaction_pin_hash:
+        skip_otp_next = trusted or first_login_bypass
         return {
             "requires_pin": True,
             "requires_otp": False,
-            "device_trusted": trusted,
+            "device_trusted": skip_otp_next,
             "user_id": user.id,
             "message": (
                 "Please enter your 4-digit transaction PIN to continue."
-                if trusted else
+                if skip_otp_next else
                 "Please enter your 4-digit transaction PIN. We'll then send you a one-time code."
             ),
         }
 
-    # No PIN set. Trusted device → issue token directly. Otherwise → send OTP.
-    if trusted:
-        await db.flush()  # persist last_used_at update from _is_device_trusted
+    # No PIN set. Trusted device OR admin-created first login → issue token.
+    if trusted or first_login_bypass:
+        if first_login_bypass:
+            user.skip_first_otp = False    # one-shot: burn it now
+        await db.flush()
         token = create_access_token({"sub": user.id, "role": user.role.value})
+        # Also mint a device_token so this browser is trusted for the next 90 days
+        device_token = await _issue_device_token(db, user, "")
         return {
             "requires_otp": False, "requires_pin": False,
             "access_token": token, "token_type": "bearer",
+            "device_token": device_token,
             "user": {"id": user.id, "name": f"{user.first_name} {user.last_name}",
                      "email": user.email, "role": user.role.value, "phone": user.phone},
         }
@@ -322,15 +331,22 @@ async def login_verify_pin(data: PinVerifyRequest, request: Request, db: AsyncSe
     if not verify_password(data.pin.strip(), user.transaction_pin_hash):
         raise HTTPException(401, "Incorrect PIN")
 
-    # Trusted device? PIN alone is enough — issue JWT now.
-    if await _is_device_trusted(db, user.id, data.device_token):
+    # Trusted device OR admin-created first login → PIN alone is enough.
+    trusted = await _is_device_trusted(db, user.id, data.device_token)
+    first_login_bypass = bool(getattr(user, "skip_first_otp", False))
+    if trusted or first_login_bypass:
+        if first_login_bypass:
+            user.skip_first_otp = False    # one-shot: burn it now
         if not user.is_verified:
             user.is_verified = True
+        # Mint device_token so subsequent logins skip OTP naturally.
+        device_token = await _issue_device_token(db, user, "")
         await db.flush()
         token = create_access_token({"sub": user.id, "role": user.role.value})
         return {
             "requires_otp": False,
             "access_token": token, "token_type": "bearer",
+            "device_token": device_token,
             "user": {"id": user.id, "name": f"{user.first_name} {user.last_name}",
                      "email": user.email, "role": user.role.value, "phone": user.phone},
         }
