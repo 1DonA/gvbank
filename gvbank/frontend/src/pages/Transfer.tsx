@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { accountsAPI, transferAPI, authAPI } from '../services/api'
 import { useAuthStore } from '../store/authStore'
@@ -7,6 +7,7 @@ import toast from 'react-hot-toast'
 import {
   Building2, Globe2, Repeat, Send, ChevronRight, ChevronLeft,
   Shield, Printer, CheckCircle2, AlertTriangle, Info, Clock, User,
+  KeyRound, Lock,
 } from 'lucide-react'
 
 // ── Money formatter ────────────────────────────────────────────────────────
@@ -84,7 +85,7 @@ function deriveRecentRecipients(transactions: any[]): RecentRecipient[] {
   return Array.from(seen.values())
 }
 
-type Step = 'method' | 'beneficiary' | 'amount' | 'review' | 'authorize' | 'receipt'
+type Step = 'method' | 'beneficiary' | 'amount' | 'review' | 'pin' | 'processing' | 'authorize' | 'receipt'
 
 interface FormState {
   // method & source
@@ -166,10 +167,21 @@ export function TransferPage() {
     mutationFn: (payload: any) => transferAPI.initiate(payload),
     onSuccess: (res) => {
       setTxRef(res.data.transfer_ref)
-      setStep('authorize')
-      toast.success(res.data.message || 'Authorization code sent')
+      // Keep the "processing" screen visible for a beat so the sequence of
+      // status messages has time to land. Then reveal the OTP entry step.
+      setTimeout(() => {
+        setStep('authorize')
+        toast.success(res.data.message || 'Authorization code sent')
+      }, 1600)
     },
-    onError: (e: any) => toast.error(e.response?.data?.detail || 'Failed to initiate transfer'),
+    onError: (e: any) => {
+      toast.error(e.response?.data?.detail || 'Failed to initiate transfer')
+      // If the PIN is wrong, bounce them back to the PIN entry to fix it.
+      // Otherwise send them to Review to change something upstream.
+      const msg = String(e.response?.data?.detail || '').toLowerCase()
+      setStep(msg.includes('pin') ? 'pin' : 'review')
+      if (msg.includes('pin')) setPin('')
+    },
   })
 
   const verifyMutation = useMutation({
@@ -223,6 +235,9 @@ export function TransferPage() {
   }
 
   const submitTransfer = () => {
+    // Show the processing screen immediately, THEN fire the API call.
+    // This makes the wait feel intentional and bank-grade.
+    setStep('processing')
     initMutation.mutate({
       from_account_id: form.from_account_id,
       transfer_method: form.method,
@@ -278,7 +293,9 @@ export function TransferPage() {
       {step === 'method'      && <MethodStep form={form} accounts={accounts} upd={upd} next={goToBeneficiary}/>}
       {step === 'beneficiary' && <BeneficiaryStep form={form} accounts={accounts} upd={upd} setForm={setForm} recents={recentRecipients} back={() => setStep('method')} next={goToAmount}/>}
       {step === 'amount'      && <AmountStep form={form} source={sourceAccount} amountNum={amountNum} feeAmount={feeAmount} totalDebit={totalDebit} upd={upd} currencies={currencies} back={() => setStep('beneficiary')} next={goToReview}/>}
-      {step === 'review'      && <ReviewStep form={form} accounts={accounts} amountNum={amountNum} feeAmount={feeAmount} totalDebit={totalDebit} sending={initMutation.isPending} pin={pin} setPin={setPin} back={() => setStep('amount')} confirm={submitTransfer}/>}
+      {step === 'review'      && <ReviewStep form={form} accounts={accounts} amountNum={amountNum} feeAmount={feeAmount} totalDebit={totalDebit} sending={initMutation.isPending} back={() => setStep('amount')} confirm={() => setStep('pin')}/>}
+      {step === 'pin'         && <PinStep pin={pin} setPin={setPin} amount={amountNum} beneficiary={form.beneficiary_name || (form.method === 'internal' ? 'your account' : form.to_destination)} back={() => setStep('review')} next={submitTransfer}/>}
+      {step === 'processing'  && <ProcessingStep amount={amountNum} beneficiary={form.beneficiary_name || (form.method === 'internal' ? 'your account' : form.to_destination)} method={form.method}/>}
       {step === 'authorize'   && <AuthorizeStep otp={otp} setOtp={setOtp} pending={verifyMutation.isPending} submit={submitOtp} resend={resendOtp} cancel={() => setStep('review')}/>}
       {step === 'receipt'     && receipt && <ReceiptStep form={form} receipt={receipt} startOver={startOver}/>}
     </div>
@@ -287,11 +304,11 @@ export function TransferPage() {
 
 // ── Stepper ────────────────────────────────────────────────────────────────
 function Stepper({ step }: { step: Step }) {
-  const steps: Step[] = ['method', 'beneficiary', 'amount', 'review', 'authorize', 'receipt']
+  const steps: Step[] = ['method', 'beneficiary', 'amount', 'review', 'pin', 'processing', 'authorize', 'receipt']
   const idx = steps.indexOf(step)
   return (
     <div className="flex items-center gap-1">
-      {steps.slice(0, 5).map((s, i) => (
+      {steps.slice(0, 6).map((s, i) => (
         <div key={s} className={`h-1.5 rounded-full transition-all
           ${i < idx ? 'bg-green-500 w-6' : i === idx ? 'bg-navy-600 w-10' : 'bg-gray-200 w-6'}`}/>
       ))}
@@ -695,7 +712,7 @@ function AmountStep({ form, source, amountNum, feeAmount, totalDebit, upd, curre
 }
 
 // ── Step 4: review & confirm ──────────────────────────────────────────────
-function ReviewStep({ form, accounts, amountNum, feeAmount, totalDebit, sending, pin, setPin, back, confirm }: any) {
+function ReviewStep({ form, accounts, amountNum, feeAmount, totalDebit, sending, back, confirm }: any) {
   const m = form.method as Method
   const source = accounts.find((a: any) => a.id === form.from_account_id)
   const destAcc = m === 'internal' ? accounts.find((a: any) => a.id === form.to_destination) : null
@@ -759,51 +776,13 @@ function ReviewStep({ form, accounts, amountNum, feeAmount, totalDebit, sending,
         </div>
       )}
 
-      {/* 4-digit transaction PIN (required if admin has set one) */}
-      <div className="bg-white rounded-2xl border border-gray-100 p-5">
-        <div className="flex items-center gap-2 mb-2">
-          <span className="text-sm font-semibold text-gray-900">Transaction PIN</span>
-          <span className="text-xs text-gray-500">— required if your account has a PIN set</span>
-        </div>
-        <div className="flex gap-3">
-          {[0,1,2,3].map(i => (
-            <input
-              key={i}
-              id={`tx-pin-${i}`}
-              type="password"
-              inputMode="numeric"
-              maxLength={1}
-              value={pin[i] || ''}
-              onChange={e => {
-                const v = e.target.value.replace(/\D/g, '')
-                const arr = (pin || '').padEnd(4, ' ').split('')
-                arr[i] = v || ' '
-                setPin(arr.join('').replace(/ /g, ''))
-                if (v && i < 3) {
-                  const el = document.getElementById(`tx-pin-${i+1}`) as HTMLInputElement | null
-                  el?.focus()
-                }
-              }}
-              onKeyDown={e => {
-                if (e.key === 'Backspace' && !(pin[i]) && i > 0) {
-                  const el = document.getElementById(`tx-pin-${i-1}`) as HTMLInputElement | null
-                  el?.focus()
-                }
-              }}
-              className="w-14 h-14 text-center text-2xl font-bold border-2 border-gray-200 rounded-xl focus:border-navy-600 focus:outline-none"
-            />
-          ))}
-        </div>
-        <p className="text-xs text-gray-500 mt-2">Leave blank if you have not been issued a PIN.</p>
-      </div>
-
       <div className="flex justify-between">
         <button onClick={back} className="px-6 py-3 border border-gray-200 rounded-xl text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-all flex items-center gap-2">
           <ChevronLeft size={16}/> Back
         </button>
         <button onClick={confirm} disabled={sending}
                 className="px-8 py-3.5 bg-navy-600 text-white font-semibold rounded-xl hover:bg-[#1e3a5f] transition-all disabled:opacity-60 flex items-center gap-2">
-          {sending ? 'Sending authorization code…' : <>Authorize Transfer <ChevronRight size={16}/></>}
+          Continue to PIN <ChevronRight size={16}/>
         </button>
       </div>
     </div>
@@ -811,6 +790,169 @@ function ReviewStep({ form, accounts, amountNum, feeAmount, totalDebit, sending,
 }
 
 // ── Step 5: OTP authorize ─────────────────────────────────────────────────
+// ── PIN step: dedicated page for the 4-digit transaction PIN ─────────────
+function PinStep({ pin, setPin, amount, beneficiary, back, next }: {
+  pin: string
+  setPin: (v: string) => void
+  amount: number
+  beneficiary: string
+  back: () => void
+  next: () => void
+}) {
+  const digits = (pin || '').padEnd(4, ' ').split('').slice(0, 4)
+
+  const setDigit = (i: number, v: string) => {
+    const clean = v.replace(/\D/g, '').slice(0, 1)
+    const arr = (pin || '').padEnd(4, ' ').split('')
+    arr[i] = clean || ' '
+    setPin(arr.join('').replace(/ /g, ''))
+    if (clean && i < 3) {
+      const el = document.getElementById(`txpin-${i+1}`) as HTMLInputElement | null
+      el?.focus()
+    }
+  }
+
+  const onKey = (i: number) => (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Backspace' && !(pin[i]) && i > 0) {
+      const el = document.getElementById(`txpin-${i-1}`) as HTMLInputElement | null
+      el?.focus()
+    }
+    if (e.key === 'Enter' && pin.length === 4) next()
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+        <div className="bg-navy-600 text-white px-6 py-5">
+          <p className="text-white/60 text-xs uppercase tracking-widest">Authorize with your PIN</p>
+          <p className="font-serif text-3xl font-bold mt-1">{fmt(amount)}</p>
+          {beneficiary && (
+            <p className="text-white/70 text-sm mt-1">
+              to <span className="font-semibold text-white">{beneficiary}</span>
+            </p>
+          )}
+        </div>
+
+        <div className="px-6 py-8 text-center">
+          <div className="w-14 h-14 mx-auto mb-4 rounded-2xl bg-gold-500/15 flex items-center justify-center text-gold-600">
+            <KeyRound size={22}/>
+          </div>
+          <h3 className="font-serif text-xl font-bold text-navy-600">Enter your 4-digit PIN</h3>
+          <p className="text-sm text-gray-500 mt-1">
+            Your transaction PIN protects every outgoing transfer. If you don't have one,
+            contact your account officer.
+          </p>
+
+          <div className="flex justify-center gap-3 mt-8">
+            {[0,1,2,3].map(i => (
+              <input
+                key={i}
+                id={`txpin-${i}`}
+                type="password"
+                inputMode="numeric"
+                autoFocus={i === 0}
+                autoComplete="one-time-code"
+                maxLength={1}
+                value={(digits[i] || '').trim()}
+                onChange={e => setDigit(i, e.target.value)}
+                onKeyDown={onKey(i)}
+                className="w-16 h-20 text-center text-3xl font-bold border-2 border-gray-200 rounded-xl focus:border-navy-600 focus:outline-none focus:shadow-md transition-all"
+              />
+            ))}
+          </div>
+
+          <p className="text-xs text-gray-400 mt-6 flex items-center justify-center gap-1.5">
+            <Lock size={11}/> Encrypted end-to-end · never shared
+          </p>
+        </div>
+      </div>
+
+      <div className="flex justify-between">
+        <button onClick={back} className="px-6 py-3 border border-gray-200 rounded-xl text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-all flex items-center gap-2">
+          <ChevronLeft size={16}/> Back to review
+        </button>
+        <button
+          onClick={next}
+          disabled={pin.length < 4}
+          className="px-8 py-3.5 bg-navy-600 text-white font-semibold rounded-xl hover:bg-[#1e3a5f] transition-all disabled:opacity-40 flex items-center gap-2">
+          Authorize Transfer <ChevronRight size={16}/>
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ── Processing step: shown after Confirm, before OTP entry ───────────────
+function ProcessingStep({ amount, beneficiary, method }: { amount: number; beneficiary: string; method: string }) {
+  const stages = [
+    'Encrypting your request',
+    'Verifying your transaction PIN',
+    'Screening for compliance (AML / sanctions)',
+    'Reserving funds on your account',
+    'Sending one-time authorization code',
+  ]
+  const [idx, setIdx] = useState(0)
+
+  useEffect(() => {
+    const t = setInterval(() => {
+      setIdx(i => (i < stages.length - 1 ? i + 1 : i))
+    }, 550)
+    return () => clearInterval(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const methodLabel = ({
+    internal: 'Internal transfer',
+    ach: 'ACH transfer',
+    domestic_wire: 'Domestic wire',
+    international_wire: 'International wire',
+    zelle: 'Zelle',
+  } as any)[method] || 'Transfer'
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 p-10 text-center">
+      {/* Animated seal */}
+      <div className="relative w-24 h-24 mx-auto mb-6">
+        <div className="absolute inset-0 rounded-full border-4 border-gold-400/30"/>
+        <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-navy-600 animate-spin"/>
+        <div className="absolute inset-3 rounded-full bg-gradient-to-br from-navy-600 to-[#1e3a5f] flex items-center justify-center text-gold-400 font-serif font-bold text-3xl shadow-bank">
+          G
+        </div>
+      </div>
+
+      <h3 className="font-serif text-2xl font-bold text-navy-600">Processing your transfer</h3>
+      <p className="text-sm text-gray-500 mt-1">
+        {methodLabel} of <span className="font-mono font-semibold text-gray-900">{fmt(amount)}</span>
+        {beneficiary ? <> to <span className="font-semibold text-gray-900">{beneficiary}</span></> : null}
+      </p>
+
+      {/* Stage list */}
+      <div className="mt-8 max-w-sm mx-auto text-left space-y-2.5">
+        {stages.map((s, i) => {
+          const done = i < idx
+          const active = i === idx
+          return (
+            <div key={s} className={`flex items-center gap-3 text-sm transition-all
+              ${done ? 'text-gray-500' : active ? 'text-navy-600 font-semibold' : 'text-gray-300'}`}>
+              <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0
+                ${done ? 'bg-green-500 text-white'
+                  : active ? 'bg-navy-600 text-white animate-pulse'
+                  : 'bg-gray-100 text-gray-400'}`}>
+                {done ? '✓' : i + 1}
+              </span>
+              <span>{s}{active ? '…' : ''}</span>
+            </div>
+          )
+        })}
+      </div>
+
+      <p className="text-xs text-gray-400 mt-8">
+        Please don't close this window. This usually takes a few seconds.
+      </p>
+    </div>
+  )
+}
+
 function AuthorizeStep({ otp, setOtp, pending, submit, resend, cancel }: any) {
   return (
     <div className="bg-white rounded-2xl border border-gray-100 p-8 text-center max-w-md mx-auto">
