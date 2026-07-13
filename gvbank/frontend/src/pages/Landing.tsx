@@ -9,6 +9,7 @@ import { MarketingFooter } from '../components/marketing/MarketingFooter'
 import {
   ShieldCheck, Lock, Smartphone, Globe2, Award, ArrowRight,
   CreditCard, PiggyBank, Home, Car, LineChart, GraduationCap, Plane, Wallet,
+  ChevronDown, Phone, Mail, MapPin,
 } from 'lucide-react'
 
 // ──────────────────────────────────────────────────────────────────────────
