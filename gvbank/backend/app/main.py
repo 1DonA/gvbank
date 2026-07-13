@@ -8,22 +8,34 @@ from app.core.database import engine, Base
 logger = logging.getLogger(__name__)
 
 
-async def _run_migrations(conn):
+async def _run_migrations():
     """Add columns introduced after initial deploy. Idempotent — each ALTER
-    is wrapped in try/except so re-runs are safe. Works on Postgres + SQLite."""
+    runs in its OWN transaction so a "column already exists" failure on one
+    migration doesn't abort the whole batch (Postgres aborts a tx on any error).
+    Uses ADD COLUMN IF NOT EXISTS on Postgres; falls back to try/except on SQLite."""
     from sqlalchemy import text
     migrations = [
         # (table, column, column_type)
         ("users", "transaction_pin_hash", "VARCHAR(200)"),
-        ("users", "skip_first_otp", "BOOLEAN DEFAULT FALSE"),
+        ("users", "skip_first_otp",       "BOOLEAN DEFAULT FALSE"),
     ]
+    dialect = engine.dialect.name  # 'postgresql', 'sqlite', etc.
     for table, column, coltype in migrations:
+        # One fresh transaction per migration — critical on Postgres.
         try:
-            await conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {coltype}"))
-            logger.info("Migration: added %s.%s", table, column)
-        except Exception:
-            # Column already exists — safe to ignore.
-            pass
+            async with engine.begin() as conn:
+                if dialect == "postgresql":
+                    await conn.execute(text(
+                        f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {coltype}"
+                    ))
+                else:
+                    await conn.execute(text(
+                        f"ALTER TABLE {table} ADD COLUMN {column} {coltype}"
+                    ))
+                logger.info("Migration OK: %s.%s (%s)", table, column, coltype)
+        except Exception as e:
+            # SQLite path may throw "duplicate column" — safe to swallow.
+            logger.info("Migration skipped for %s.%s: %s", table, column, type(e).__name__)
 
 
 @asynccontextmanager
@@ -31,7 +43,9 @@ async def lifespan(app: FastAPI):
     # 1. Create tables if they don't exist yet.
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-        await _run_migrations(conn)
+
+    # 2. Add any new columns to existing tables. Each runs in its own tx.
+    await _run_migrations()
 
     # 2. Auto-seed the admin + demo customers on the FIRST startup only.
     #    This is a no-op after the first successful run — checks for existing
