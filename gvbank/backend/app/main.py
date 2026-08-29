@@ -69,10 +69,11 @@ app = FastAPI(title="GV Union Bank API", version="1.0.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-    "http://localhost:5173",
-    # placeholder — you'll fill this in Phase 6 with your real Render URL
-    "https://gvbank-web.onrender.com",
-],
+        "http://localhost:5173",
+        "https://gvbank-web.onrender.com",
+        "https://www.gvbank.org",
+        "https://gvbank.org",
+    ],
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
