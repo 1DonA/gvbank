@@ -2,7 +2,7 @@ import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.api import auth, users, accounts, transactions, admin, otp, support
+from app.api import auth, users, accounts, transactions, admin, otp, support, admin_extra
 from app.core.database import engine, Base
 
 logger = logging.getLogger(__name__)
@@ -85,6 +85,7 @@ app.include_router(users.router,        prefix="/api/users",        tags=["Users
 app.include_router(accounts.router,     prefix="/api/accounts",     tags=["Accounts"])
 app.include_router(transactions.router, prefix="/api/transactions", tags=["Transactions"])
 app.include_router(admin.router,        prefix="/api/admin",        tags=["Admin"])
+app.include_router(admin_extra.router,  prefix="/api/admin",        tags=["Admin"])
 app.include_router(support.router,      prefix="/api",              tags=["Support"])
 
 
