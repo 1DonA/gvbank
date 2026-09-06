@@ -40,14 +40,14 @@ api.interceptors.response.use(
 
 export default api
 
-// ── Device recognition helpers ─────────────────────────────────────────────
+// ── Device recognition helpers ─────────────────────────────────
 // Opaque per-user, per-device token used to skip OTP on trusted devices.
 // The backend hashes and stores this; we just keep the plaintext in localStorage.
 const deviceToken = () => localStorage.getItem('gv_device') || undefined
 export const setDeviceToken = (t: string) => localStorage.setItem('gv_device', t)
 const withDevice = (d: any) => ({ ...d, device_token: deviceToken() })
 
-// ── Auth ────────────────────────────────────────────────────────────────────
+// ── Auth ───────────────────────────────────────────────────────────────────
 export const authAPI = {
   register:     (d: any)                    => api.post('/auth/register', d),
   loginInit:    (d: any)                    => api.post('/auth/login/initiate', withDevice(d)),
@@ -59,7 +59,7 @@ export const authAPI = {
     api.post('/otp/resend', { email, purpose }),
 }
 
-// ── Customer ────────────────────────────────────────────────────────────────
+// ── Customer ───────────────────────────────────────────────────────────────
 export const accountsAPI = {
   list:            ()                  => api.get('/accounts/'),
   transactions:    (id: string)        => api.get(`/accounts/${id}/transactions`),
@@ -82,7 +82,7 @@ export const userAPI = {
   sessions:       ()       => api.get('/users/me/sessions'),
 }
 
-// ── Live support chat ──────────────────────────────────────────────────────
+// ── Live support chat ──────────────────────────────────────────────
 export const supportAPI = {
   myChat:         ()               => api.get('/support/my-chat'),
   resetMyChat:    ()               => api.delete('/support/my-chat'),
@@ -100,7 +100,7 @@ export const supportAPI = {
   updateSettings: (d: any)         => api.patch('/admin/support/settings', d),
 }
 
-// ── Admin ───────────────────────────────────────────────────────────────────
+// ── Admin ─────────────────────────────────────────────────────────────────
 export const adminAPI = {
   stats:           ()                       => api.get('/admin/stats'),
   users:           ()                       => api.get('/admin/users'),
@@ -120,6 +120,7 @@ export const adminAPI = {
   adjustBalance:   (id: string, amount: number) =>
     api.patch(`/admin/accounts/${id}/balance`, { amount }),
   suspendAccount:  (id: string)             => api.patch(`/admin/accounts/${id}/suspend`),
+  deleteAccount:   (id: string)             => api.delete(`/admin/accounts/${id}`),
   postTransaction: (account_id: string, d: any) =>
     api.post(`/admin/accounts/${account_id}/post`, d),
 
