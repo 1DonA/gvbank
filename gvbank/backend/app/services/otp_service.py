@@ -202,6 +202,5 @@ async def send_otp_sms(phone: str, code: str, purpose: str) -> None:
 async def dispatch_otp(db: AsyncSession, user: User, purpose: str) -> str:
     code = await create_otp(db, user.id, purpose)
     await send_otp_email(user.email, user.first_name, code, purpose)
-    if user.phone:
-        await send_otp_sms(user.phone, code, purpose)
+    # SMS disabled — OTP is email-only
     return code
