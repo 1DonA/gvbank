@@ -10,9 +10,9 @@ export function AdminLoginPage() {
   const [loading, setLoading] = useState(false)
   const { setAuth } = useAuthStore()
   const navigate = useNavigate()
-  const { register, handleSubmit, formState: { errors } } = useForm<{ email: string; password: string }>()
+  const { register, handleSubmit, formState: { errors } } = useForm<{ username: string; password: string }>()
 
-  const onSubmit = async (data: { email: string; password: string }) => {
+  const onSubmit = async (data: { username: string; password: string }) => {
     setLoading(true)
     try {
       const res = await authAPI.loginInit(data)
@@ -48,10 +48,10 @@ export function AdminLoginPage() {
 
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
             <div>
-              <label className="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-2">Admin Email</label>
-              <input type="email" {...register('email', { required: 'Required' })}
+              <label className="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-2">Username</label>
+              <input type="text" {...register('username', { required: 'Required' })}
                 className="w-full px-4 py-3.5 border-2 border-gray-200 rounded-xl text-sm outline-none focus:border-red-600 transition-all"
-                placeholder="admin@gvunionbank.com" />
+                placeholder="admin" />
             </div>
             <div>
               <label className="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-2">Password</label>
