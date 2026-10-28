@@ -4,7 +4,7 @@ from sqlalchemy import select, func, delete as sa_delete
 from pydantic import BaseModel, EmailStr
 from typing import Optional
 from datetime import datetime
-import uuid, random, string
+import uuid, random, string, re
 from app.core.database import get_db
 from app.core.security import hash_password
 from app.models.models import (
@@ -32,7 +32,7 @@ async def list_users(db: AsyncSession = Depends(get_db), _=Depends(require_admin
         total = sum(a.balance for a in accts)
         out.append({
             "id": u.id, "name": f"{u.first_name} {u.last_name}",
-            "email": u.email, "phone": u.phone,
+            "email": u.email, "username": u.username, "phone": u.phone,
             "is_active": u.is_active, "is_verified": u.is_verified,
             "total_balance": total, "account_count": len(accts),
             "created_at": u.created_at.isoformat(),
@@ -44,6 +44,7 @@ class CreateUserBody(BaseModel):
     first_name: str
     last_name: str
     email: EmailStr
+    username: str
     phone: Optional[str] = None
     password: str
     address: Optional[str] = ""
@@ -61,6 +62,14 @@ async def create_user(body: CreateUserBody,
     existing = await db.execute(select(User).where(User.email == body.email))
     if existing.scalars().first():
         raise HTTPException(400, "Email already registered")
+        uname = (body.username or "").strip().lower()
+    if len(uname) < 3 or len(uname) > 30:
+        raise HTTPException(400, "Username must be 3–30 characters")
+    if not re.match(r"^[a-z0-9._]+$", uname):
+        raise HTTPException(400, "Username may only contain letters, numbers, dots and underscores")
+    taken = await db.execute(select(User).where(User.username == uname))
+    if taken.scalars().first():
+        raise HTTPException(400, "Username already taken")
 
     # Basic validation
     if len(body.password) < 6:
@@ -91,6 +100,7 @@ async def create_user(body: CreateUserBody,
         first_name=body.first_name.strip(),
         last_name=body.last_name.strip(),
         email=body.email,
+        username=uname,
         phone=body.phone,
         password_hash=hash_password(body.password),
         address=body.address or "",
