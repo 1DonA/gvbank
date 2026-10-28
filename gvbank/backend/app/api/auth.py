@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 from typing import Optional, Literal
-import uuid, random, string, secrets
+import uuid, random, string, secrets, re
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,6 +13,38 @@ from app.models.models import User, UserRole, Account, AccountType, TrustedDevic
 from app.services.otp_service import dispatch_otp, verify_otp
 
 router = APIRouter()
+
+
+def _normalize_username(value: str) -> str:
+    return (value or "").strip().lower()
+
+
+def _validate_username(value: str) -> str:
+    u = _normalize_username(value)
+    if len(u) < 3 or len(u) > 30:
+        raise HTTPException(400, "Username must be 3–30 characters")
+    if not re.match(r"^[a-z0-9._]+$", u):
+        raise HTTPException(400, "Username may only contain letters, numbers, dots and underscores")
+    return u
+
+
+async def _user_by_username(db: AsyncSession, username: str):
+    u = _normalize_username(username)
+    result = await db.execute(select(User).where(User.username == u))
+    return result.scalars().first()
+
+
+async def _user_by_login_id(db: AsyncSession, login_id: str):
+    """Resolve customer username first; fall back to email (admin / legacy)."""
+    raw = (login_id or "").strip()
+    if not raw:
+        return None
+    user = await _user_by_username(db, raw)
+    if user:
+        return user
+    # email fallback (case-insensitive)
+    result = await db.execute(select(User).where(User.email == raw.lower()))
+    return result.scalars().first()
 
 # ── Trusted-device helpers ────────────────────────────────────────────────
 DEVICE_TRUST_DAYS = 90
@@ -59,19 +91,20 @@ def _acct_num() -> str:
 
 # ── Schemas ────────────────────────────────────────────────────────────────
 class LoginRequest(BaseModel):
-    email: EmailStr
+    username: str  # customer username (email still accepted for admin/legacy)
     password: str
     device_token: Optional[str] = None
 
 
 class PinVerifyRequest(BaseModel):
-    email: EmailStr
+    username: str
     pin: str
     device_token: Optional[str] = None
 
 
 class OTPVerifyRequest(BaseModel):
-    email: EmailStr
+    username: Optional[str] = None  # preferred for login
+    email: Optional[EmailStr] = None  # register / reset / legacy
     code: str
     purpose: str = "login"
 
@@ -85,6 +118,7 @@ class RegisterRequest(BaseModel):
     middle_name: Optional[str] = None
     last_name: str
     email: EmailStr
+    username: str                 # unique login name
     phone: str
     date_of_birth: str            # ISO yyyy-mm-dd
     ssn_last4: str = Field(min_length=4, max_length=4)
@@ -173,6 +207,11 @@ async def register(data: RegisterRequest, db: AsyncSession = Depends(get_db)):
     if existing.scalars().first():
         raise HTTPException(400, "An account with this email already exists. Try signing in or recover your password.")
 
+    uname = _validate_username(data.username)
+    taken = await db.execute(select(User).where(User.username == uname))
+    if taken.scalars().first():
+        raise HTTPException(400, "Username already taken. Please choose another.")
+
     if not (data.open_checking or data.open_savings):
         raise HTTPException(400, "Please select at least one account type to open")
 
@@ -190,6 +229,7 @@ async def register(data: RegisterRequest, db: AsyncSession = Depends(get_db)):
         middle_name=(data.middle_name or "").strip() or None,
         last_name=data.last_name.strip(),
         email=data.email,
+        username=uname,
         phone=data.phone.strip(),
         password_hash=hash_password(data.password),
         role=UserRole.CUSTOMER,
@@ -256,8 +296,7 @@ async def register(data: RegisterRequest, db: AsyncSession = Depends(get_db)):
 # ── Login ──────────────────────────────────────────────────────────────────
 @router.post("/login/initiate")
 async def login_initiate(data: LoginRequest, request: Request, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(User).where(User.email == data.email))
-    user = result.scalars().first()
+    user = await _user_by_login_id(db, data.username)
     if not user or not verify_password(data.password, user.password_hash):
         raise HTTPException(401, "Invalid username or password")
     if not user.is_active:
@@ -324,8 +363,7 @@ async def login_initiate(data: LoginRequest, request: Request, db: AsyncSession 
 async def login_verify_pin(data: PinVerifyRequest, request: Request, db: AsyncSession = Depends(get_db)):
     """Verify the 4-digit transaction PIN. If the device is trusted, we issue
     the JWT immediately; otherwise we dispatch an OTP and require /login/verify."""
-    result = await db.execute(select(User).where(User.email == data.email))
-    user = result.scalars().first()
+    user = await _user_by_login_id(db, data.username)
     if not user or not user.transaction_pin_hash:
         raise HTTPException(400, "No PIN is set for this account")
     if not verify_password(data.pin.strip(), user.transaction_pin_hash):
@@ -364,8 +402,12 @@ async def login_verify_pin(data: PinVerifyRequest, request: Request, db: AsyncSe
 
 @router.post("/login/verify")
 async def login_verify(data: OTPVerifyRequest, request: Request, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(User).where(User.email == data.email))
-    user = result.scalars().first()
+    user = None
+    if data.username:
+        user = await _user_by_login_id(db, data.username)
+    elif data.email:
+        result = await db.execute(select(User).where(User.email == data.email))
+        user = result.scalars().first()
     if not user:
         raise HTTPException(404, "User not found")
     valid = await verify_otp(db, user.id, data.code, data.purpose or "login")
