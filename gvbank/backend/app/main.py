@@ -18,6 +18,7 @@ async def _run_migrations():
         # (table, column, column_type)
         ("users", "transaction_pin_hash", "VARCHAR(200)"),
         ("users", "skip_first_otp",       "BOOLEAN DEFAULT FALSE"),
+        ("users", "username",             "VARCHAR(50)"),
     ]
     dialect = engine.dialect.name  # 'postgresql', 'sqlite', etc.
     for table, column, coltype in migrations:
