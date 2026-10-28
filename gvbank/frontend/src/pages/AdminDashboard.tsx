@@ -148,7 +148,7 @@ export function AdminDashboard() {
   ]
 
   const filteredUsers = users.filter((u: any) =>
-    !userSearch || (u.name + u.email).toLowerCase().includes(userSearch.toLowerCase()))
+   !userSearch || (u.name + u.email + (u.username || '')).toLowerCase().includes(userSearch.toLowerCase()))
 
   return (
     <div className="space-y-6">
@@ -227,7 +227,7 @@ export function AdminDashboard() {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-gray-50"><tr>
-                {['Customer','Email','Balance','Status','Actions'].map(h => (
+               {['Customer','Username','Email','Balance','Status','Actions'].map(h => (
                   <th key={h} className="text-left px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider whitespace-nowrap">{h}</th>
                 ))}
               </tr></thead>
@@ -240,7 +240,7 @@ export function AdminDashboard() {
                       </div>
                       <span className="font-semibold text-gray-900 whitespace-nowrap">{u.name}</span>
                     </div></td>
-                    <td className="px-4 py-3 text-gray-500 text-xs">{u.email}</td>
+                    <td className="px-4 py-3 text-gray-500 text-xs">{u.username || "—"}</td>
                     <td className="px-4 py-3 font-mono font-semibold">{fmt(u.total_balance)}</td>
                     <td className="px-4 py-3">
                       <span className={`text-xs px-2 py-1 rounded-full font-semibold ${u.is_active ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'}`}>
@@ -440,7 +440,7 @@ function CreateCustomerModal({ onClose, onSubmit, pending }: {
   pending: boolean
 }) {
   const [form, setForm] = useState({
-    first_name: '', last_name: '', email: '', phone: '', password: '',
+    first_name: '', last_name: '', email: '', username: '', phone: '', password: '',
     address: '',
     initial_checking_balance: '',
     initial_savings_balance: '',
@@ -449,7 +449,7 @@ function CreateCustomerModal({ onClose, onSubmit, pending }: {
   })
 
   const submit = () => {
-    if (!form.first_name || !form.last_name || !form.email || !form.password) {
+    if (!form.first_name || !form.last_name || !form.email || !form.username || !form.password) {
       toast.error('First name, last name, email and password are required'); return
     }
     if (form.password.length < 6) {
@@ -462,6 +462,7 @@ function CreateCustomerModal({ onClose, onSubmit, pending }: {
       first_name: form.first_name.trim(),
       last_name: form.last_name.trim(),
       email: form.email.trim(),
+      username: form.username.trim().toLowerCase(),
       phone: form.phone.trim() || null,
       password: form.password,
       address: form.address.trim(),
@@ -500,6 +501,12 @@ function CreateCustomerModal({ onClose, onSubmit, pending }: {
             <input type="email" className="input" value={form.email}
                    onChange={e => setForm({...form, email: e.target.value})} placeholder="jane@email.com"/>
           </div>
+          <div>
+         <label className="label">Username *</label>
+         <input className="input" value={form.username}
+                 onChange={e => setForm({...form, username: e.target.value.toLowerCase()})} placeholder="johndoe" maxLength={30}/>
+          </div>
+          
           <div>
             <label className="label">Phone</label>
             <input className="input" value={form.phone}
