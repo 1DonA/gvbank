@@ -284,7 +284,7 @@ async def get_user_detail(user_id: str,
         "user": {
             "id": user.id,
             "first_name": user.first_name, "last_name": user.last_name,
-            "email": user.email, "phone": user.phone, "address": user.address,
+            "email": user.email, "username": user.username, "phone": user.phone, "address": user.address,         
             "role": user.role.value, "is_verified": user.is_verified,
             "is_active": user.is_active,
             "profile_picture": user.profile_picture,
