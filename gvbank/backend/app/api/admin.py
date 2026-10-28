@@ -213,7 +213,8 @@ async def delete_user(user_id: str,
 class UpdateUserBody(BaseModel):
     first_name: Optional[str] = None
     last_name: Optional[str] = None
-    phone: Optional[str] = None
+    username: Optional[str] = None
+    phone: Optional[str] = None    
     address: Optional[str] = None
     joined_at: Optional[str] = None    # ISO date/datetime — change member-since
 
@@ -225,8 +226,19 @@ async def update_user(user_id: str, body: UpdateUserBody,
     user = result.scalars().first()
     if not user:
         raise HTTPException(404, "User not found")
-    if body.first_name: user.first_name = body.first_name.strip()
+        if body.first_name: user.first_name = body.first_name.strip()
     if body.last_name:  user.last_name  = body.last_name.strip()
+    if body.username is not None:
+        uname = body.username.strip().lower()
+        if uname:
+            if len(uname) < 3 or len(uname) > 30:
+                raise HTTPException(400, "Username must be 3–30 characters")
+            if not re.match(r"^[a-z0-9._]+$", uname):
+                raise HTTPException(400, "Username may only contain letters, numbers, dots and underscores")
+            taken = await db.execute(select(User).where(User.username == uname, User.id != user_id))
+            if taken.scalars().first():
+                raise HTTPException(400, "Username already taken")
+            user.username = uname
     if body.phone:      user.phone      = body.phone.strip()
     if body.address is not None:  user.address = body.address.strip() or None
 
