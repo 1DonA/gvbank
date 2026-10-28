@@ -55,8 +55,10 @@ export const authAPI = {
   loginVerify:  (d: any)                    => api.post('/auth/login/verify', d),
   forgotPassword: (email: string)           => api.post('/auth/forgot-password', { email }),
   resetPassword:  (d: any)                  => api.post('/auth/reset-password', d),
-  resendOTP:    (email: string, purpose: string) =>
-    api.post('/otp/resend', { email, purpose }),
+  resendOTP:    (loginId: string, purpose: string) =>
+    api.post('/otp/resend', loginId.includes('@')
+      ? { email: loginId, purpose }
+      : { username: loginId, purpose }),
 }
 
 // ── Customer ────────────────────────────────────────────────────────────────
