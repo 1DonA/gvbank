@@ -10,7 +10,6 @@ import {
   Wallet, PiggyBank, User, MapPin, Briefcase, Key, FileCheck, Eye, EyeOff,
 } from 'lucide-react'
 
-// ──────────────────────────────────────────────────────────────────────────
 const STEPS = [
   { id: 'products',  label: 'Account',      icon: <Wallet size={14}/> },
   { id: 'personal',  label: 'Personal',     icon: <User size={14}/> },
@@ -24,46 +23,34 @@ const STEPS = [
 type StepId = typeof STEPS[number]['id']
 
 interface FormState {
-  // Account selection
   open_checking: boolean
   open_savings: boolean
   initial_deposit: string
-
-  // Personal
   first_name: string
   middle_name: string
   last_name: string
   email: string
+  username: string
   phone: string
   date_of_birth: string
-
-  // Identity / KYC
   citizenship: string
   ssn_last4: string
   gov_id_type: string
   gov_id_last4: string
   gov_id_state: string
-
-  // Address
   street_1: string
   street_2: string
   city: string
   state: string
   zip_code: string
-
-  // Work & income
   occupation: string
   employer: string
   annual_income: string
   source_of_funds: string
-
-  // Security
   password: string
   confirm_password: string
   security_question: string
   security_answer: string
-
-  // Disclosures
   consent_patriot: boolean
   consent_esign: boolean
   consent_terms: boolean
@@ -71,7 +58,8 @@ interface FormState {
 
 const initialState: FormState = {
   open_checking: true, open_savings: false, initial_deposit: '',
-  first_name: '', middle_name: '', last_name: '', email: '', phone: '', date_of_birth: '',
+  first_name: '', middle_name: '', last_name: '', email: '',
+  username: '', phone: '', date_of_birth: '',
   citizenship: 'us_citizen', ssn_last4: '',
   gov_id_type: 'drivers_license', gov_id_last4: '', gov_id_state: '',
   street_1: '', street_2: '', city: '', state: '', zip_code: '',
@@ -110,7 +98,6 @@ const SECURITY_QUESTIONS = [
   "What was the name of your elementary school?",
 ]
 
-// ──────────────────────────────────────────────────────────────────────────
 export function RegisterPage() {
   const [stepIdx, setStepIdx] = useState(0)
   const [form, setForm] = useState<FormState>(initialState)
@@ -139,34 +126,29 @@ export function RegisterPage() {
         middle_name:  form.middle_name.trim() || null,
         last_name:    form.last_name.trim(),
         email:        form.email.trim(),
+        username:     form.username.trim().toLowerCase(),
         phone:        form.phone.trim(),
         date_of_birth: form.date_of_birth,
-
         ssn_last4:    form.ssn_last4,
         citizenship:  form.citizenship,
         gov_id_type:  form.gov_id_type,
         gov_id_last4: form.gov_id_last4,
         gov_id_state: form.gov_id_state || null,
-
         street_1: form.street_1.trim(),
         street_2: form.street_2.trim() || null,
         city:     form.city.trim(),
         state:    form.state,
         zip_code: form.zip_code.trim(),
-
         occupation:      form.occupation.trim(),
         employer:        form.employer.trim() || null,
         annual_income:   form.annual_income,
         source_of_funds: form.source_of_funds,
-
         open_checking:   form.open_checking,
         open_savings:    form.open_savings,
         initial_deposit: parseFloat(form.initial_deposit || '0') || 0,
-
         password:          form.password,
         security_question: form.security_question,
         security_answer:   form.security_answer.trim(),
-
         consent_patriot: form.consent_patriot,
         consent_esign:   form.consent_esign,
         consent_terms:   form.consent_terms,
@@ -204,10 +186,8 @@ export function RegisterPage() {
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
       <LoginHeader/>
-
       <main className="flex-1">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 py-8">
-          {/* Title strip */}
           <div className="text-center mb-7">
             <p className="text-xs tracking-widest text-gold-600 uppercase font-bold mb-1">Open a Personal Account</p>
             <h1 className="font-serif text-3xl sm:text-4xl font-bold text-navy-600">Apply in about 5 minutes</h1>
@@ -216,11 +196,7 @@ export function RegisterPage() {
               All information is encrypted and used solely to open and protect your account.
             </p>
           </div>
-
-          {/* Progress stepper */}
           <ProgressStepper stepIdx={stepIdx}/>
-
-          {/* Step content */}
           <div className="bg-white rounded-2xl shadow-bank-lg p-6 sm:p-10 mt-6">
             {step.id === 'products' && <ProductsStep form={form} upd={upd}/>}
             {step.id === 'personal' && <PersonalStep form={form} upd={upd}/>}
@@ -233,8 +209,6 @@ export function RegisterPage() {
               <VerifyStep email={form.email} otp={otp} setOtp={setOtp}
                           pending={loading} submit={submitOtp} resend={resendOtp}/>
             )}
-
-            {/* Nav buttons */}
             {step.id !== 'verify' && (
               <div className="flex justify-between gap-3 mt-8 pt-6 border-t border-gray-100">
                 <button onClick={back} disabled={stepIdx === 0}
@@ -255,8 +229,6 @@ export function RegisterPage() {
               </div>
             )}
           </div>
-
-          {/* Trust strip */}
           <div className="text-center mt-6 text-xs text-gray-500 flex items-center justify-center gap-4 flex-wrap">
             <span className="flex items-center gap-1"><Lock size={11} className="text-green-600"/> 256-bit encryption</span>
             <span className="flex items-center gap-1"><ShieldCheck size={11} className="text-green-600"/> FDIC Insured</span>
@@ -265,13 +237,11 @@ export function RegisterPage() {
           </div>
         </div>
       </main>
-
       <LoginFooter/>
     </div>
   )
 }
 
-// ── Stepper ────────────────────────────────────────────────────────────────
 function ProgressStepper({ stepIdx }: { stepIdx: number }) {
   return (
     <div className="overflow-x-auto -mx-2 px-2">
@@ -302,13 +272,11 @@ function ProgressStepper({ stepIdx }: { stepIdx: number }) {
   )
 }
 
-// ── Step 1: Products ───────────────────────────────────────────────────────
 function ProductsStep({ form, upd }: any) {
   return (
     <>
       <StepHeader title="Choose your account(s)"
                   blurb="Open a checking account, a savings account, or both. You can always add more later."/>
-
       <div className="space-y-3 mb-6">
         <ProductCard
           selected={form.open_checking}
@@ -327,7 +295,6 @@ function ProductsStep({ form, upd }: any) {
           icon={<PiggyBank size={22}/>}
         />
       </div>
-
       <div className="border-t border-gray-100 pt-6">
         <label className="label">Opening deposit <span className="text-gray-400 normal-case font-normal">(optional)</span></label>
         <div className="relative max-w-xs">
@@ -372,7 +339,6 @@ function ProductCard({ selected, onClick, title, sub, highlights, accent, icon }
   )
 }
 
-// ── Step 2: Personal ───────────────────────────────────────────────────────
 function PersonalStep({ form, upd }: any) {
   const maxDob = new Date(Date.now() - 18*365.25*24*60*60*1000).toISOString().slice(0,10)
   return (
@@ -393,6 +359,10 @@ function PersonalStep({ form, upd }: any) {
         <Field label="Email address *">
           <input type="email" className="input" value={form.email} onChange={e => upd('email', e.target.value)} placeholder="your@email.com"/>
         </Field>
+        <Field label="Username * " hint="Used to sign in. Letters, numbers, dots and underscores only.">
+          <input className="input" value={form.username} onChange={e => upd('username', e.target.value.toLowerCase())}
+            placeholder="johndoe" autoComplete="username" maxLength={30}/>
+        </Field>
         <Field label="Mobile phone * " hint="Used for SMS verification">
           <input type="tel" className="input" value={form.phone} onChange={e => upd('phone', e.target.value)} placeholder="+1 555 123 4567"/>
         </Field>
@@ -405,17 +375,14 @@ function PersonalStep({ form, upd }: any) {
   )
 }
 
-// ── Step 3: Identity / KYC ────────────────────────────────────────────────
 function IdentityStep({ form, upd }: any) {
   return (
     <>
       <StepHeader title="Verify your identity" blurb="Required by the USA PATRIOT Act for all new bank accounts."/>
-
       <Disclosure tone="info">
         Under federal law, we must collect identifying information for every customer. Your data is encrypted
         and used only to verify your identity. We will never share it with marketers.
       </Disclosure>
-
       <div className="space-y-4 mt-6">
         <Field label="Citizenship status *">
           <select className="input" value={form.citizenship} onChange={e => upd('citizenship', e.target.value)}>
@@ -424,7 +391,6 @@ function IdentityStep({ form, upd }: any) {
             <option value="non_resident">Non-Resident Alien</option>
           </select>
         </Field>
-
         <Field label="Last 4 digits of Social Security Number *"
                hint="We never store your full SSN. Only the last 4 digits are kept for verification.">
           <input type="text" inputMode="numeric" maxLength={4} className="input max-w-[140px] font-mono"
@@ -432,7 +398,6 @@ function IdentityStep({ form, upd }: any) {
             onChange={e => upd('ssn_last4', e.target.value.replace(/\D/g,''))}
             placeholder="••••"/>
         </Field>
-
         <div className="bg-gray-50 rounded-2xl p-5 space-y-3">
           <p className="text-sm font-semibold text-gray-900">Government-issued ID</p>
           <div className="grid sm:grid-cols-3 gap-3">
@@ -464,7 +429,6 @@ function IdentityStep({ form, upd }: any) {
   )
 }
 
-// ── Step 4: Address ────────────────────────────────────────────────────────
 function AddressStep({ form, upd }: any) {
   return (
     <>
@@ -496,13 +460,11 @@ function AddressStep({ form, upd }: any) {
   )
 }
 
-// ── Step 5: Employment / income ───────────────────────────────────────────
 function WorkStep({ form, upd }: any) {
   return (
     <>
       <StepHeader title="Employment & income"
                   blurb="Required by the Bank Secrecy Act and anti-money-laundering regulations."/>
-
       <div className="grid sm:grid-cols-2 gap-3 mb-4">
         <Field label="Occupation *">
           <input className="input" value={form.occupation} onChange={e => upd('occupation', e.target.value)}
@@ -513,20 +475,17 @@ function WorkStep({ form, upd }: any) {
             placeholder="ACME Corp."/>
         </Field>
       </div>
-
       <Field label="Estimated annual income *">
         <select className="input" value={form.annual_income} onChange={e => upd('annual_income', e.target.value)}>
           {INCOME_BUCKETS.map(b => <option key={b.v} value={b.v}>{b.l}</option>)}
         </select>
       </Field>
-
       <Field label="Primary source of funds *"
              hint="Where will the money in this account primarily come from?">
         <select className="input" value={form.source_of_funds} onChange={e => upd('source_of_funds', e.target.value)}>
           {SOURCE_OPTIONS.map(s => <option key={s.v} value={s.v}>{s.l}</option>)}
         </select>
       </Field>
-
       <Disclosure tone="info" className="mt-5">
         Tax reporting: under IRS rules we'll request a W-9 or W-8 form via secure message after your account is opened.
       </Disclosure>
@@ -534,13 +493,11 @@ function WorkStep({ form, upd }: any) {
   )
 }
 
-// ── Step 6: Security ───────────────────────────────────────────────────────
 function SecurityStep({ form, upd, showPw, setShowPw }: any) {
   const strength = pwStrength(form.password)
   return (
     <>
       <StepHeader title="Create your sign-in" blurb="Choose a strong password and a security question for account recovery."/>
-
       <div className="space-y-4">
         <Field label="Password *">
           <div className="relative">
@@ -571,13 +528,11 @@ function SecurityStep({ form, upd, showPw, setShowPw }: any) {
           )}
           <p className="text-xs text-gray-400 mt-1">Use 8+ characters with an uppercase letter, a number, and a symbol.</p>
         </Field>
-
         <Field label="Confirm password *">
           <input type={showPw ? 'text' : 'password'} className="input"
             value={form.confirm_password} onChange={e => upd('confirm_password', e.target.value)}
             placeholder="Re-enter password" autoComplete="new-password"/>
         </Field>
-
         <div className="bg-gray-50 rounded-2xl p-5 space-y-3">
           <p className="text-sm font-semibold text-gray-900">Account recovery</p>
           <Field label="Security question *">
@@ -604,7 +559,6 @@ function pwStrength(pw: string) {
   return { score: s, label: labels[s] }
 }
 
-// ── Step 7: Review & disclosures ──────────────────────────────────────────
 function ReviewStep({ form, upd }: any) {
   const Row = ({ label, value }: any) => (
     <div className="flex items-start justify-between py-2 gap-4 border-b border-gray-100 last:border-0">
@@ -621,45 +575,38 @@ function ReviewStep({ form, upd }: any) {
   return (
     <>
       <StepHeader title="Review your application" blurb="Please confirm everything is correct before submitting."/>
-
       <div className="grid lg:grid-cols-2 gap-5 mb-6">
         <ReviewCard title="Accounts requested">
           <Row label="Products" value={accountSummary}/>
           <Row label="Opening deposit" value={form.initial_deposit ? `$${parseFloat(form.initial_deposit).toFixed(2)}` : '$0.00'}/>
         </ReviewCard>
-
         <ReviewCard title="Personal information">
           <Row label="Name" value={[form.first_name, form.middle_name, form.last_name].filter(Boolean).join(' ')}/>
           <Row label="Date of birth" value={form.date_of_birth}/>
           <Row label="Email" value={form.email}/>
+          <Row label="Username" value={form.username}/>
           <Row label="Phone" value={form.phone}/>
         </ReviewCard>
-
         <ReviewCard title="Identity">
           <Row label="Citizenship" value={form.citizenship.replace('_',' ')}/>
           <Row label="SSN (last 4)" value={form.ssn_last4 ? `••• – ${form.ssn_last4}` : ''}/>
           <Row label={`${form.gov_id_type.replace('_',' ')} (last 4)`} value={form.gov_id_last4}/>
         </ReviewCard>
-
         <ReviewCard title="Address">
           <Row label="Street" value={[form.street_1, form.street_2].filter(Boolean).join(', ')}/>
           <Row label="City, State ZIP" value={[form.city, form.state, form.zip_code].filter(Boolean).join(', ')}/>
         </ReviewCard>
-
         <ReviewCard title="Employment & income">
           <Row label="Occupation" value={form.occupation}/>
           <Row label="Employer" value={form.employer}/>
           <Row label="Annual income" value={(INCOME_BUCKETS.find(b => b.v === form.annual_income) || {}).l}/>
           <Row label="Source of funds" value={(SOURCE_OPTIONS.find(s => s.v === form.source_of_funds) || {}).l}/>
         </ReviewCard>
-
         <ReviewCard title="Security">
           <Row label="Password" value={'•'.repeat(Math.max(8, form.password.length))}/>
           <Row label="Security question" value={form.security_question}/>
         </ReviewCard>
       </div>
-
-      {/* Disclosures */}
       <div className="bg-gray-50 rounded-2xl p-5 sm:p-6 space-y-4">
         <p className="font-semibold text-gray-900 flex items-center gap-2">
           <FileCheck size={16}/> Required disclosures
@@ -669,13 +616,11 @@ function ReviewStep({ form, upd }: any) {
           To help the government fight the funding of terrorism and money laundering, federal law requires us to obtain,
           verify and record information identifying each person who opens an account.
         </ConsentCheckbox>
-
         <ConsentCheckbox checked={form.consent_esign} onChange={(v: boolean) => upd('consent_esign', v)}
           title="Electronic Disclosure & E-SIGN Consent">
           I agree to receive account documents, disclosures, statements and notices electronically. I confirm
           I have hardware and software that can access PDFs and HTML pages.
         </ConsentCheckbox>
-
         <ConsentCheckbox checked={form.consent_terms} onChange={(v: boolean) => upd('consent_terms', v)}
           title="Deposit Account Agreement, Truth in Savings & Privacy Policy">
           I have read and agree to the Deposit Account Agreement, Truth in Savings Act disclosures, Fee Schedule,
@@ -708,7 +653,6 @@ function ConsentCheckbox({ checked, onChange, title, children }: any) {
   )
 }
 
-// ── Step 8: Verify OTP ─────────────────────────────────────────────────────
 function VerifyStep({ email, otp, setOtp, pending, submit, resend }: any) {
   return (
     <div className="text-center max-w-md mx-auto">
@@ -732,7 +676,6 @@ function VerifyStep({ email, otp, setOtp, pending, submit, resend }: any) {
   )
 }
 
-// ── Reusable bits ──────────────────────────────────────────────────────────
 function StepHeader({ title, blurb }: { title: string; blurb: string }) {
   return (
     <div className="mb-6">
@@ -766,7 +709,6 @@ function Disclosure({ tone = 'info', className = '', children }: any) {
   )
 }
 
-// ── Step validation ────────────────────────────────────────────────────────
 function validateStep(step: StepId, f: FormState): string | null {
   switch (step) {
     case 'products':
@@ -776,6 +718,8 @@ function validateStep(step: StepId, f: FormState): string | null {
     case 'personal':
       if (!f.first_name.trim() || !f.last_name.trim()) return 'Full legal name is required'
       if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(f.email)) return 'Please enter a valid email'
+      if (!f.username.trim() || f.username.trim().length < 3) return 'Username is required (min 3 characters)'
+      if (!/^[a-zA-Z0-9._]+$/.test(f.username.trim())) return 'Username may only contain letters, numbers, dots and underscores'
       if (!/^\+?[\d\s\-()]{7,}$/.test(f.phone)) return 'Please enter a valid phone number'
       if (!f.date_of_birth) return 'Date of birth is required'
       const age = (Date.now() - new Date(f.date_of_birth).getTime()) / (365.25 * 24*60*60*1000)
