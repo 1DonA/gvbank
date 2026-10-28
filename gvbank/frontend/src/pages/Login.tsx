@@ -22,9 +22,8 @@ export function LoginPage() {
   const { setAuth, setPendingEmail, pendingEmail } = useAuthStore()
   const navigate = useNavigate()
   const { register, handleSubmit, getValues, formState: { errors } } =
-    useForm<{ email: string; password: string; remember: boolean }>()
+    useForm<{ username: string; password: string; remember: boolean }>()
 
-  // Finalize sign-in — used both by direct (trusted device) and OTP paths.
   const completeLogin = async (user: any, access_token: string, device_token?: string) => {
     if (device_token) setDeviceToken(device_token)
     setAuth(user, access_token)
@@ -33,19 +32,17 @@ export function LoginPage() {
     navigate(user.role === 'admin' ? '/admin' : '/dashboard')
   }
 
-  const onCredentials = async (data: { email: string; password: string }) => {
+  const onCredentials = async (data: { username: string; password: string }) => {
     setLoading(true)
     try {
       const res = await authAPI.loginInit(data)
-      setPendingEmail(data.email)
+      setPendingEmail(data.username)
 
-      // Case 1: JWT issued directly — admin, or trusted device with no PIN.
       if (res.data.access_token) {
         await completeLogin(res.data.user, res.data.access_token, res.data.device_token)
         return
       }
 
-      // Case 2: PIN required next.
       if (res.data.requires_pin) {
         setStep('pin')
         toast(res.data.device_trusted
@@ -54,7 +51,6 @@ export function LoginPage() {
         return
       }
 
-      // Case 3: OTP required (new device, no PIN).
       setStep('otp')
       toast.success(res.data.message)
     } catch (e: any) {
@@ -67,16 +63,14 @@ export function LoginPage() {
     if (pinCode.length < 4) { toast.error('Enter your 4-digit PIN'); return }
     setLoading(true)
     try {
-      const res = await authAPI.loginVerifyPin({ email: pendingEmail, pin: pinCode })
+      const res = await authAPI.loginVerifyPin({ username: pendingEmail, pin: pinCode })
 
-      // Trusted device: JWT issued immediately.
       if (res.data.access_token) {
         await completeLogin(res.data.user, res.data.access_token, res.data.device_token)
         return
       }
 
-      // New device: still need OTP.
-      toast.success(res.data.message || 'PIN accepted — check your email/SMS')
+      toast.success(res.data.message || 'PIN accepted — check your email')
       setStep('otp')
     } catch (e: any) {
       toast.error(e.response?.data?.detail || 'Incorrect PIN')
@@ -89,7 +83,7 @@ export function LoginPage() {
     if (code.length < 6) { toast.error('Please enter the full 6-digit code'); return }
     setLoading(true)
     try {
-      const res = await authAPI.loginVerify({ email: pendingEmail, code, purpose: 'login' })
+      const res = await authAPI.loginVerify({ username: pendingEmail, code, purpose: 'login' })
       await completeLogin(res.data.user, res.data.access_token, res.data.device_token)
     } catch (e: any) {
       toast.error(e.response?.data?.detail || 'Incorrect code')
@@ -110,7 +104,6 @@ export function LoginPage() {
 
       <main className="flex-1">
         <div className="max-w-7xl mx-auto px-6 py-10 grid lg:grid-cols-[1.1fr_1fr] gap-10 items-start">
-          {/* Sign-in card */}
           <div>
             <div className="bg-white rounded-2xl shadow-bank-lg p-8 sm:p-10 max-w-xl mx-auto lg:mx-0">
               {step === 'credentials' && (
@@ -123,11 +116,11 @@ export function LoginPage() {
 
                   <form onSubmit={handleSubmit(onCredentials)} className="space-y-5">
                     <div>
-                      <label className="label">Username / Email</label>
-                      <input type="email" autoFocus autoComplete="username"
-                        {...register('email', { required: 'Email is required' })}
-                        className="input" placeholder="your@email.com"/>
-                      {errors.email && <p className="text-red-500 text-xs mt-1">{errors.email.message}</p>}
+                      <label className="label">Username</label>
+                      <input type="text" autoFocus autoComplete="username"
+                        {...register('username', { required: 'Username is required', minLength: { value: 3, message: 'At least 3 characters' } })}
+                        className="input" placeholder="your username"/>
+                      {errors.username && <p className="text-red-500 text-xs mt-1">{errors.username.message}</p>}
                     </div>
                     <div>
                       <div className="flex items-center justify-between mb-2">
@@ -260,7 +253,6 @@ export function LoginPage() {
               )}
             </div>
 
-            {/* Trust strip beneath card */}
             <div className="max-w-xl mx-auto lg:mx-0 mt-5 flex items-center justify-center gap-5 text-xs text-gray-500">
               <span className="flex items-center gap-1.5"><Lock size={12} className="text-green-600"/> Secure</span>
               <span className="flex items-center gap-1.5"><ShieldCheck size={12} className="text-green-600"/> FDIC Insured</span>
@@ -268,7 +260,6 @@ export function LoginPage() {
             </div>
           </div>
 
-          {/* Marketing sidebar */}
           <aside className="hidden lg:block">
             <div className="relative bg-gradient-to-br from-navy-600 via-[#1e3a5f] to-[#3a5d7c] rounded-2xl p-10 text-white overflow-hidden shadow-bank-lg">
               <div className="absolute -right-20 -top-20 w-72 h-72 rounded-full bg-gold-500/10"/>
@@ -316,7 +307,6 @@ export function LoginPage() {
   )
 }
 
-// ── Small reusable bits ───────────────────────────────────────────────────
 export function LoginHeader() {
   return (
     <header className="bg-white border-b border-gray-100">
