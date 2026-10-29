@@ -289,7 +289,7 @@ export function AdminDashboard() {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-gray-50"><tr>
-                {['Account','Owner','Type','Balance','APY','Status','Actions'].map(h => (
+                {['Account','Account ID','Owner','Type','Balance','APY','Status','Actions'].map(h => (
                   <th key={h} className="text-left px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider whitespace-nowrap">{h}</th>
                 ))}
               </tr></thead>
@@ -297,6 +297,17 @@ export function AdminDashboard() {
                 {accounts.map((a: any) => (
                   <tr key={a.id} className="hover:bg-gray-50 transition-colors">
                     <td className="px-4 py-3 font-mono text-xs text-gray-600">{a.number}</td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-mono text-[11px] text-gray-500 truncate max-w-[140px]" title={a.id}>{a.id}</span>
+                        <button
+                          onClick={() => { navigator.clipboard.writeText(a.id); toast.success('Account ID copied') }}
+                          title="Copy account ID"
+                          className="text-navy-600 hover:bg-navy-50 rounded p-0.5 text-xs font-semibold flex-shrink-0">
+                          Copy
+                        </button>
+                      </div>
+                    </td>
                     <td className="px-4 py-3 font-semibold text-gray-900 whitespace-nowrap">{a.owner}</td>
                     <td className="px-4 py-3 capitalize text-gray-600">{a.type}</td>
                     <td className="px-4 py-3 font-mono font-semibold">{fmt(a.balance)}</td>
@@ -1544,6 +1555,15 @@ function CreateTransactionModal({ accounts, pending, onClose, onSubmit }: any) {
                   <p className="text-xs text-gray-500 font-mono truncate">
                     {selectedAccount?.number} · {selectedAccount?.type} · balance {fmt(selectedAccount?.balance || 0)}
                   </p>
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    <span className="text-[11px] font-mono text-gray-400 truncate max-w-[180px]" title={selectedAccount?.id}>{selectedAccount?.id}</span>
+                    <button
+                      type="button"
+                      onClick={() => { navigator.clipboard.writeText(selectedAccount?.id || ''); toast.success('Account ID copied') }}
+                      className="text-[11px] text-navy-600 font-semibold hover:underline flex-shrink-0">
+                      Copy ID
+                    </button>
+                  </div>
                 </div>
                 <button onClick={() => setAccountId('')} className="text-xs text-navy-600 font-semibold hover:underline">Change</button>
               </div>
