@@ -41,63 +41,75 @@ type Tx = {
   created_at: string
 }
 
-function buildReceiptPdf(tx: Tx): Blob {
-  const lines: string[] = [
-    'GV UNION BANK',
-    'Member FDIC',
-    '',
-    'TRANSACTION RECEIPT',
-    '',
-    `Amount:         ${tx.amount > 0 ? '+' : '-'}${fmt(tx.amount)}`,
-    `Description:    ${tx.description}`,
-    `Status:         ${tx.status.charAt(0).toUpperCase() + tx.status.slice(1)}`,
-    `Type:           ${tx.type.charAt(0).toUpperCase() + tx.type.slice(1)}`,
-    `Method:         ${methodLabel(tx.transfer_method)}`,
-    `Category:       ${tx.category || '-'}`,
-  ]
-  if (tx.beneficiary_name) lines.push(`Beneficiary:    ${tx.beneficiary_name}`)
-  if (tx.beneficiary_bank) lines.push(`Bank:           ${tx.beneficiary_bank}`)
-  if (tx.fee && tx.fee > 0) lines.push(`Fee:            ${fmt(tx.fee)}`)
-  if (tx.reference) lines.push(`Reference:      ${tx.reference}`)
-  lines.push(`Confirmation:   ${tx.id}`)
-  lines.push(`Posted:         ${fmtDateTime(tx.created_at)}`)
-  if (tx.memo) lines.push(`Memo:           ${tx.memo}`)
-  lines.push('')
-  lines.push('Electronic record. Contact your account officer for questions.')
-  lines.push(`Generated ${new Date().toLocaleString()}`)
+function openOfficialReceipt(tx: Tx) {
+  const html = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8"/>
+<title>GV Union Bank — Receipt ${tx.reference || tx.id.slice(0,8)}</title>
+<style>
+  @page { margin: 20mm; }
+  body { font-family: Georgia, 'Times New Roman', serif; color: #0a1628; margin: 0; padding: 40px; background: #fff; }
+  .header { display: flex; align-items: center; justify-content: space-between; border-bottom: 3px solid #c9a84c; padding-bottom: 16px; margin-bottom: 24px; }
+  .logo { display: flex; align-items: center; gap: 12px; }
+  .logo-mark { width: 48px; height: 48px; background: linear-gradient(135deg, #c9a84c, #e8c97a); border-radius: 10px; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 22px; color: #0a1628; }
+  .bank-name { font-size: 22px; font-weight: 700; color: #0a1628; }
+  .tagline { font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: #c9a84c; margin-top: 2px; }
+  .receipt-title { font-size: 14px; letter-spacing: 0.2em; text-transform: uppercase; color: #6b6560; }
+  .amount { font-size: 36px; font-weight: 700; margin: 8px 0 4px; }
+  .amount.credit { color: #1a7a4a; }
+  .amount.debit { color: #0a1628; }
+  .desc { color: #6b6560; margin-bottom: 20px; }
+  table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+  td { padding: 10px 0; border-bottom: 1px solid #e4e2dc; vertical-align: top; }
+  td.label { color: #6b6560; width: 40%; font-size: 13px; }
+  td.value { font-weight: 600; text-align: right; font-size: 13px; }
+  .footer { margin-top: 32px; padding-top: 16px; border-top: 1px solid #e4e2dc; font-size: 11px; color: #9a9589; line-height: 1.6; }
+  .badge { display: inline-block; background: #0a1628; color: #c9a84c; font-size: 10px; letter-spacing: 0.1em; padding: 4px 10px; border-radius: 4px; margin-top: 8px; }
+</style>
+</head>
+<body>
+  <div class="header">
+    <div class="logo">
+      <div class="logo-mark">G</div>
+      <div>
+        <div class="bank-name">GV Union Bank</div>
+        <div class="tagline">Member FDIC · Equal Housing Lender</div>
+      </div>
+    </div>
+    <div class="receipt-title">Official Receipt</div>
+  </div>
 
-  const content = lines.map((l, i) => `BT /F1 11 Tf 50 ${750 - i * 16} Td (${l.replace(/[()\\]/g, '')}) Tj ET`).join('\n')
-  const pdf = `%PDF-1.4
-1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj
-2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj
-3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >> endobj
-4 0 obj << /Length ${content.length} >> stream
-${content}
-endstream endobj
-5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj
-xref
-0 6
-0000000000 65535 f 
-0000000009 00000 n 
-0000000058 00000 n 
-0000000115 00000 n 
-0000000266 00000 n 
-0000000${(400 + content.length).toString().padStart(3, '0')} 00000 n 
-trailer << /Size 6 /Root 1 0 R >>
-startxref
-${500 + content.length}
-%%EOF`
-  return new Blob([pdf], { type: 'application/pdf' })
-}
+  <div class="amount ${tx.amount > 0 ? 'credit' : 'debit'}">${tx.amount > 0 ? '+' : '−'}${fmt(tx.amount)}</div>
+  <div class="desc">${tx.description}</div>
+  <div class="badge">${tx.status.toUpperCase()}</div>
 
-function downloadReceipt(tx: Tx) {
-  const blob = buildReceiptPdf(tx)
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `GV-Bank-Receipt-${tx.reference || tx.id.slice(0, 8)}.pdf`
-  a.click()
-  URL.revokeObjectURL(url)
+  <table>
+    <tr><td class="label">Posted</td><td class="value">${fmtDateTime(tx.created_at)}</td></tr>
+    <tr><td class="label">Type</td><td class="value">${tx.type.charAt(0).toUpperCase() + tx.type.slice(1)}</td></tr>
+    <tr><td class="label">Method</td><td class="value">${methodLabel(tx.transfer_method)}</td></tr>
+    <tr><td class="label">Category</td><td class="value">${tx.category || '—'}</td></tr>
+    ${tx.beneficiary_name ? `<tr><td class="label">Beneficiary</td><td class="value">${tx.beneficiary_name}</td></tr>` : ''}
+    ${tx.beneficiary_bank ? `<tr><td class="label">Beneficiary Bank</td><td class="value">${tx.beneficiary_bank}</td></tr>` : ''}
+    ${tx.fee && tx.fee > 0 ? `<tr><td class="label">Fee</td><td class="value">${fmt(tx.fee)}</td></tr>` : ''}
+    ${tx.reference ? `<tr><td class="label">Reference</td><td class="value" style="font-family:monospace">${tx.reference}</td></tr>` : ''}
+    <tr><td class="label">Confirmation ID</td><td class="value" style="font-family:monospace;font-size:11px">${tx.id}</td></tr>
+    ${tx.memo ? `<tr><td class="label">Memo</td><td class="value">${tx.memo}</td></tr>` : ''}
+  </table>
+
+  <div class="footer">
+    This is an official electronic receipt issued by GV Union Bank, N.A.<br/>
+    For questions contact your account officer or security@gvunionbank.com<br/>
+    Generated ${new Date().toLocaleString()} · Member FDIC
+  </div>
+</body>
+</html>`
+  const w = window.open('', '_blank')
+  if (w) {
+    w.document.write(html)
+    w.document.close()
+    setTimeout(() => w.print(), 300)
+  }
 }
 
 export function StatementsPage() {
@@ -142,7 +154,6 @@ export function StatementsPage() {
     return { credits, debits, net: credits - debits, fees, count: filtered.length }
   }, [filtered])
 
-  // Group by month
   const grouped = useMemo(() => {
     const map = new Map<string, Tx[]>()
     for (const t of filtered) {
@@ -184,11 +195,11 @@ export function StatementsPage() {
   const hasFilters = accountId !== 'all' || type !== 'all' || status !== 'all' || method !== 'all' || search || from || to
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 pb-24">
       <div className="flex items-end justify-between gap-3 flex-wrap">
         <div>
           <h2 className="font-serif text-2xl font-bold text-gray-900">Statements & History</h2>
-          <p className="text-sm text-gray-500">Full transaction history with search, filters, and downloadable receipts.</p>
+          <p className="text-sm text-gray-500">Full transaction history with search, filters, and official receipts.</p>
         </div>
         <button onClick={exportCSV} disabled={!filtered.length}
                 className="flex items-center gap-2 px-4 py-2.5 bg-navy-600 text-white rounded-xl text-sm font-semibold hover:bg-[#1e3a5f] transition-all disabled:opacity-50">
@@ -196,7 +207,6 @@ export function StatementsPage() {
         </button>
       </div>
 
-      {/* Summary cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div className="bg-white rounded-2xl border border-gray-100 p-4">
           <p className="text-xs uppercase tracking-widest text-gray-400">Credits</p>
@@ -224,7 +234,6 @@ export function StatementsPage() {
 
       <MonthlyTrend transactions={filtered}/>
 
-      {/* Filters */}
       <div className="bg-white rounded-2xl border border-gray-100 p-4 space-y-3">
         <div className="flex items-center gap-2 text-sm font-semibold text-gray-700">
           <Filter size={14}/> Filters
@@ -295,7 +304,6 @@ export function StatementsPage() {
         </div>
       </div>
 
-      {/* Status legend */}
       <div className="bg-white rounded-2xl border border-gray-100 px-5 py-3 flex items-center gap-3 sm:gap-5 overflow-x-auto text-xs">
         <span className="text-gray-500 font-semibold uppercase tracking-widest whitespace-nowrap">Statuses</span>
         {[
@@ -311,7 +319,6 @@ export function StatementsPage() {
         ))}
       </div>
 
-      {/* Grouped list */}
       <div className="space-y-4">
         {isLoading && <p className="text-center text-gray-400 text-sm py-10">Loading…</p>}
         {!isLoading && filtered.length === 0 && (
@@ -341,7 +348,6 @@ export function StatementsPage() {
         })}
       </div>
 
-      {/* Detail drawer */}
       {selected && (
         <div className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center p-0 sm:p-4" onClick={() => setSelected(null)}>
           <div className="bg-white w-full sm:max-w-lg sm:rounded-2xl rounded-t-2xl max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
@@ -350,7 +356,6 @@ export function StatementsPage() {
               <button onClick={() => setSelected(null)} className="text-gray-400 hover:text-gray-700"><X size={18}/></button>
             </div>
 
-            {/* Amount */}
             <div className="px-6 py-6 border-b border-gray-100 text-center">
               <p className={`font-serif text-4xl font-bold ${selected.amount > 0 ? 'text-green-600' : 'text-gray-900'}`}>
                 {selected.amount > 0 ? '+' : '−'}{fmt(selected.amount)}
@@ -361,7 +366,6 @@ export function StatementsPage() {
               )}
             </div>
 
-            {/* Sections */}
             <div className="px-6 py-4 space-y-5">
               <Section title="Transaction">
                 <DetailRow icon={<Calendar size={14}/>} label="Posted" value={fmtDateTime(selected.created_at)}/>
@@ -399,9 +403,9 @@ export function StatementsPage() {
             </div>
 
             <div className="px-6 py-4 border-t border-gray-100 flex gap-2 sticky bottom-0 bg-white">
-              <button onClick={() => downloadReceipt(selected)}
+              <button onClick={() => openOfficialReceipt(selected)}
                 className="flex-1 flex items-center justify-center gap-2 py-3 bg-navy-600 text-white rounded-xl text-sm font-semibold hover:bg-[#1e3a5f]">
-                <Download size={14}/> Download PDF
+                <Download size={14}/> Official PDF
               </button>
               <button onClick={() => window.print()}
                 className="flex-1 flex items-center justify-center gap-2 py-3 border border-gray-200 rounded-xl text-sm font-semibold text-gray-700 hover:bg-gray-50">
@@ -501,51 +505,50 @@ function TransactionRow({ tx, onSelect }: { tx: Tx; onSelect: () => void }) {
 }
 
 function MonthlyTrend({ transactions }: { transactions: Tx[] }) {
+  // Show last 12 months of actual data, or all months if fewer
   const months = useMemo(() => {
-    const now = new Date()
-    const arr: { label: string; key: string; credits: number; debits: number }[] = []
-    for (let i = 5; i >= 0; i--) {
-      const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
-      arr.push({
-        label: d.toLocaleString('en-US', { month: 'short' }),
-        key: `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`,
-        credits: 0, debits: 0,
-      })
-    }
+    const byMonth = new Map<string, { credits: number; debits: number }>()
     for (const t of transactions) {
       const key = t.created_at.slice(0, 7)
-      const m = arr.find(x => x.key === key)
-      if (!m) continue
+      if (!byMonth.has(key)) byMonth.set(key, { credits: 0, debits: 0 })
+      const m = byMonth.get(key)!
       if (t.amount > 0) m.credits += t.amount
-      else              m.debits  += Math.abs(t.amount)
+      else m.debits += Math.abs(t.amount)
     }
-    return arr
+    const sorted = Array.from(byMonth.entries()).sort((a, b) => a[0].localeCompare(b[0]))
+    // Take last 12 months that have data
+    const recent = sorted.slice(-12)
+    return recent.map(([key, v]) => ({
+      label: new Date(key + '-01').toLocaleString('en-US', { month: 'short', year: '2-digit' }),
+      key,
+      credits: v.credits,
+      debits: v.debits,
+    }))
   }, [transactions])
 
   const peak = Math.max(...months.flatMap(m => [m.credits, m.debits]), 1)
-  const hasData = months.some(m => m.credits || m.debits)
-  if (!hasData) return null
+  if (months.length === 0) return null
 
   return (
     <div className="bg-white rounded-2xl border border-gray-100 p-5">
       <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
-        <h3 className="font-semibold text-gray-900">Last 6 months</h3>
+        <h3 className="font-semibold text-gray-900">Activity overview</h3>
         <div className="flex items-center gap-4 text-xs">
           <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 bg-green-500 rounded"/> Money in</span>
           <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 bg-gray-400 rounded"/> Money out</span>
         </div>
       </div>
-      <div className="flex items-end gap-2 sm:gap-4 h-32">
+      <div className="flex items-end gap-1 sm:gap-2 h-36 overflow-x-auto pb-1">
         {months.map(m => {
-          const cH = Math.max(2, (m.credits / peak) * 100)
-          const dH = Math.max(2, (m.debits  / peak) * 100)
+          const cH = Math.max(4, (m.credits / peak) * 100)
+          const dH = Math.max(4, (m.debits  / peak) * 100)
           return (
-            <div key={m.key} className="flex-1 flex flex-col items-center">
-              <div className="w-full flex items-end justify-center gap-1 h-full">
+            <div key={m.key} className="flex-1 min-w-[32px] flex flex-col items-center">
+              <div className="w-full flex items-end justify-center gap-0.5 h-full">
                 <div className="w-1/2 bg-green-500 rounded-t" style={{ height: `${cH}%` }} title={'+€' + m.credits.toFixed(0)}/>
                 <div className="w-1/2 bg-gray-400 rounded-t" style={{ height: `${dH}%` }} title={'−€' + m.debits.toFixed(0)}/>
               </div>
-              <p className="text-xs text-gray-500 mt-2">{m.label}</p>
+              <p className="text-[10px] text-gray-500 mt-2 whitespace-nowrap">{m.label}</p>
             </div>
           )
         })}
