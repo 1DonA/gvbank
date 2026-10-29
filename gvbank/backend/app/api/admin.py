@@ -579,6 +579,15 @@ class BulkTxItem(BaseModel):
     memo: Optional[str] = None
     posted_at: Optional[str] = None
     status: Optional[str] = "completed"
+    transfer_method: Optional[str] = None
+    beneficiary_name: Optional[str] = None
+    beneficiary_bank: Optional[str] = None
+    beneficiary_account: Optional[str] = None
+    beneficiary_routing: Optional[str] = None
+    beneficiary_address: Optional[str] = None
+    category: Optional[str] = None
+    reference: Optional[str] = None
+    fee: Optional[float] = 0.0
 
 
 @router.post("/transactions/bulk", status_code=201)
@@ -642,7 +651,15 @@ async def bulk_import_transactions(items: list[BulkTxItem],
             amount=signed,
             description=item.description.strip(),
             memo=item.memo,
-            category="deposit" if is_credit else "withdrawal",
+            category=item.category or ("deposit" if is_credit else "withdrawal"),
+            transfer_method=item.transfer_method,
+            beneficiary_name=item.beneficiary_name,
+            beneficiary_bank=item.beneficiary_bank,
+            beneficiary_account=item.beneficiary_account,
+            beneficiary_routing=item.beneficiary_routing,
+            beneficiary_address=item.beneficiary_address,
+            reference=item.reference,
+            fee=item.fee or 0.0,
             admin_note="Bulk import",
             created_at=posted_at,
             updated_at=posted_at,
@@ -675,6 +692,42 @@ async def delete_transaction(tx_id: str,
     await db.delete(tx)
     await db.flush()
     return {"message": "Transaction deleted", "reversed_balance_impact": tx.status == TxStatus.COMPLETED}
+
+
+
+# ── Account & bulk transaction deletion ─────────────────────────────────────
+@router.delete("/accounts/{account_id}")
+async def delete_account(account_id: str, db: AsyncSession = Depends(get_db), _=Depends(require_admin)):
+    """Delete an account and all of its transactions (cascade)."""
+    res = await db.execute(select(Account).where(Account.id == account_id))
+    acct = res.scalars().first()
+    if not acct:
+        raise HTTPException(404, "Account not found")
+    await db.delete(acct)
+    await db.flush()
+    return {"message": "Account deleted"}
+
+
+class BulkDeleteBody(BaseModel):
+    ids: list[str]
+
+
+@router.post("/transactions/bulk-delete")
+async def bulk_delete_transactions(body: BulkDeleteBody, db: AsyncSession = Depends(get_db), _=Depends(require_admin)):
+    """Delete multiple transactions and reverse their balance impact if completed."""
+    if not body.ids:
+        raise HTTPException(400, "No IDs provided")
+    res = await db.execute(select(Transaction).where(Transaction.id.in_(body.ids)))
+    txs = list(res.scalars().all())
+    for t in txs:
+        if t.status == TxStatus.COMPLETED:
+            acct_res = await db.execute(select(Account).where(Account.id == t.account_id))
+            acct = acct_res.scalars().first()
+            if acct:
+                acct.balance -= t.amount
+        await db.delete(t)
+    await db.flush()
+    return {"deleted": len(txs)}
 
 
 # ── Transactions ─────────────────────────────────────────────────────────────
