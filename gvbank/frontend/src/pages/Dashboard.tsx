@@ -29,8 +29,10 @@ const greeting = () => {
 
 export function DashboardPage() {
   const { user } = useAuthStore()
-  const { data: accounts = [] } = useQuery({ queryKey: ['accounts'], queryFn: () => accountsAPI.list().then(r => r.data) })
-  const { data: transactions = [] } = useQuery({ queryKey: ['all-tx'], queryFn: () => accountsAPI.allTransactions().then(r => r.data) })
+  const { data: accountsRaw } = useQuery({ queryKey: ['accounts'], queryFn: () => accountsAPI.list().then(r => r.data) })
+  const accounts = Array.isArray(accountsRaw) ? accountsRaw : []
+  const { data: txRaw } = useQuery({ queryKey: ['all-tx'], queryFn: () => accountsAPI.allTransactions().then(r => r.data) })
+  const transactions = Array.isArray(txRaw) ? txRaw : []
 
   const totalBalance = accounts.reduce((s: number, a: any) => s + a.balance, 0)
   const checking = accounts.find((a: any) => a.type === 'checking')
