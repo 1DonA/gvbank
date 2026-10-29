@@ -184,28 +184,59 @@ function PromoCard() {
 // ── Inline sign-in widget ─────────────────────────────────────────────────
 function SignInWidget() {
   const navigate = useNavigate()
-  const { setAuth, setPendingEmail, pendingEmail } = useAuthStore()
-  const [step, setStep] = useState<'credentials' | 'otp'>('credentials')
-  const [form, setForm] = useState({ email: '', password: '', remember: true })
+  const { setAuth } = useAuthStore()
+  const [step, setStep] = useState<'credentials' | 'otp' | 'pin'>('credentials')
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
   const [otp, setOtp] = useState<string[]>(Array(6).fill(''))
+  const [pin, setPin] = useState<string[]>(Array(4).fill(''))
   const [loading, setLoading] = useState(false)
+  const [masked, setMasked] = useState('')
+
+  const finish = (user: any, token: string) => {
+    setAuth(user, token)
+    toast.success('Welcome back')
+    navigate(user?.role === 'admin' ? '/admin' : '/dashboard')
+  }
 
   const submitCreds = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!form.email || !form.password) { toast.error('Username and password required'); return }
+    if (!username.trim() || !password) { toast.error('Username and password required'); return }
     setLoading(true)
     try {
-      const res = await authAPI.loginInit({ username: form.email, password: form.password })
-      if (!res.data.requires_otp) {
-        setAuth(res.data.user, res.data.access_token)
-        navigate(res.data.user.role === 'admin' ? '/admin' : '/dashboard')
+      const res = await authAPI.loginInit({ username: username.trim(), password })
+      if (res.data.access_token) {
+        finish(res.data.user, res.data.access_token)
         return
       }
-      setPendingEmail(form.email)
+      setMasked(res.data.masked_email || '')
+      if (res.data.requires_pin) {
+        setStep('pin')
+        return
+      }
       setStep('otp')
       toast.success(res.data.message || 'Verification code sent')
     } catch (e: any) {
       toast.error(e.response?.data?.detail || 'Sign-in failed')
+    } finally { setLoading(false) }
+  }
+
+  const submitPin = async () => {
+    const code = pin.join('')
+    if (code.length < 4) { toast.error('Enter your 4-digit PIN'); return }
+    setLoading(true)
+    try {
+      const res = await authAPI.loginVerifyPin({ username: username.trim(), pin: code })
+      if (res.data.access_token) {
+        finish(res.data.user, res.data.access_token)
+        return
+      }
+      setMasked(res.data.masked_email || '')
+      setStep('otp')
+      toast.success(res.data.message || 'Code sent')
+    } catch (e: any) {
+      toast.error(e.response?.data?.detail || 'Incorrect PIN')
+      setPin(Array(4).fill(''))
     } finally { setLoading(false) }
   }
 
@@ -214,11 +245,12 @@ function SignInWidget() {
     if (code.length < 6) { toast.error('Enter the 6-digit code'); return }
     setLoading(true)
     try {
-      const res = await authAPI.loginVerify({ username: pendingEmail || form.email, code, purpose: 'login' })
-      setAuth(res.data.user, res.data.access_token)
-      try { await supportAPI.resetMyChat() } catch { /* non-fatal */ }
-      toast.success('Signed in')
-      navigate('/dashboard')
+      const res = await authAPI.loginVerify({ username: username.trim(), code, purpose: 'login' })
+      if (res.data.requires_pin) {
+        setStep('pin')
+        return
+      }
+      finish(res.data.user, res.data.access_token)
     } catch (e: any) {
       toast.error(e.response?.data?.detail || 'Invalid code')
       setOtp(Array(6).fill(''))
@@ -226,55 +258,69 @@ function SignInWidget() {
   }
 
   return (
-    <div className="bg-white rounded-2xl shadow-bank-lg p-7 border border-gray-100">
-      {step === 'credentials' ? (
-        <form onSubmit={submitCreds} className="space-y-4">
+    <div className="bg-white rounded-2xl shadow-lg p-6 sm:p-7 border border-gray-100">
+      {step === 'credentials' && (
+        <form onSubmit={submitCreds} className="space-y-4" autoComplete="on">
           <h3 className="font-serif text-xl font-bold text-navy-600">Sign In</h3>
           <div>
             <label className="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-1">Username</label>
-            <input type="text" autoComplete="username" inputMode="text" autoCapitalize="none" autoCorrect="off" value={form.email} onChange={e => setForm({...form, email: e.target.value})}
+            <input type="text" name="username" id="home-username"
+              autoComplete="username" inputMode="text"
+              autoCapitalize="none" autoCorrect="off" spellCheck={false}
+              value={username} onChange={e => setUsername(e.target.value)}
               className="w-full border-0 border-b-2 border-gray-200 focus:border-navy-600 px-1 py-2.5 outline-none text-sm transition-colors"
               placeholder="your username"/>
           </div>
           <div>
             <label className="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-1">Password</label>
-            <input type="password" value={form.password} onChange={e => setForm({...form, password: e.target.value})}
+            <input type="password" name="password" autoComplete="current-password"
+              value={password} onChange={e => setPassword(e.target.value)}
               className="w-full border-0 border-b-2 border-gray-200 focus:border-navy-600 px-1 py-2.5 outline-none text-sm transition-colors"
               placeholder="••••••••"/>
           </div>
-          <label className="flex items-center justify-between text-xs pt-1">
-            <span className="flex items-center gap-2 text-gray-600">
-              <input type="checkbox" checked={form.remember} onChange={e => setForm({...form, remember: e.target.checked})}
-                className="accent-navy-600"/>
-              Remember username
-            </span>
-            <a href="#" className="text-navy-600 font-semibold hover:underline">Use token</a>
-          </label>
           <button type="submit" disabled={loading}
             className="w-full py-3.5 bg-navy-600 hover:bg-[#1e3a5f] text-white font-semibold rounded-xl text-sm transition-all disabled:opacity-60">
             {loading ? 'Signing in…' : 'Sign in'}
           </button>
-          <div className="relative flex items-center py-1">
-            <div className="flex-1 border-t border-gray-200"/>
-            <span className="px-3 text-xs text-gray-400">Or</span>
-            <div className="flex-1 border-t border-gray-200"/>
-          </div>
-          <button type="button"
-            className="w-full py-3.5 border-2 border-navy-600 text-navy-600 hover:bg-navy-50 font-semibold rounded-xl text-sm transition-all">
-            Passwordless sign in
-          </button>
           <div className="flex justify-between text-xs pt-2 border-t border-gray-100">
-            <a href="#" className="text-navy-600 font-semibold hover:underline">Forgot username/password</a>
+            <Link to="/forgot-password" className="text-navy-600 font-semibold hover:underline">Forgot password</Link>
             <Link to="/register" className="text-navy-600 font-semibold hover:underline">Enroll</Link>
           </div>
         </form>
-      ) : (
+      )}
+
+      {step === 'pin' && (
         <div className="space-y-4">
-          <button onClick={() => setStep('credentials')}
-            className="text-xs text-gray-500 hover:text-navy-600">← Back</button>
+          <button onClick={() => setStep('credentials')} className="text-xs text-gray-500 hover:text-navy-600">← Back</button>
+          <div className="text-center">
+            <h3 className="font-serif text-xl font-bold text-navy-600">Enter your PIN</h3>
+            <p className="text-xs text-gray-500 mt-1">4-digit transaction PIN</p>
+          </div>
+          <div className="flex justify-center gap-2">
+            {pin.map((d, i) => (
+              <input key={i} id={`hpin-${i}`} type="password" inputMode="numeric" maxLength={1}
+                value={d}
+                onChange={e => {
+                  const v = e.target.value.replace(/\D/g, '')
+                  const next = [...pin]; next[i] = v; setPin(next)
+                  if (v && i < 3) (document.getElementById(`hpin-${i+1}`) as HTMLInputElement)?.focus()
+                }}
+                className="w-12 h-14 text-center text-xl font-bold border-2 border-gray-200 rounded-xl focus:border-navy-600 focus:outline-none"/>
+            ))}
+          </div>
+          <button onClick={submitPin} disabled={loading || pin.join('').length < 4}
+            className="w-full py-3.5 bg-navy-600 hover:bg-[#1e3a5f] text-white font-semibold rounded-xl text-sm transition-all disabled:opacity-50">
+            {loading ? 'Verifying…' : 'Continue'}
+          </button>
+        </div>
+      )}
+
+      {step === 'otp' && (
+        <div className="space-y-4">
+          <button onClick={() => setStep('credentials')} className="text-xs text-gray-500 hover:text-navy-600">← Back</button>
           <div>
             <h3 className="font-serif text-xl font-bold text-navy-600">Verify Identity</h3>
-            <p className="text-xs text-gray-500 mt-1">Enter the 6-digit code sent to your email and phone.</p>
+            <p className="text-xs text-gray-500 mt-1">Code sent to {masked || 'your email and phone'}.</p>
           </div>
           <OTPInput value={otp} onChange={setOtp}/>
           <button onClick={submitOtp} disabled={loading || otp.join('').length < 6}
@@ -286,6 +332,7 @@ function SignInWidget() {
     </div>
   )
 }
+
 
 // ── Products grid (3-column featured) ─────────────────────────────────────
 function ProductsGrid() {
