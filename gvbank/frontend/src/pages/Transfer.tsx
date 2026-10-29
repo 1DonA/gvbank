@@ -981,6 +981,67 @@ function AuthorizeStep({ otp, setOtp, pending, submit, resend, cancel }: any) {
 // ── Step 6: receipt ────────────────────────────────────────────────────────
 function ReceiptStep({ form, receipt, startOver }: any) {
   const m = form.method as Method
+
+  const downloadPdf = () => {
+    const lines = [
+      'GV UNION BANK',
+      'Member FDIC',
+      '',
+      'TRANSFER RECEIPT',
+      '',
+      `Amount sent:    ${fmt(receipt.amount)}`,
+      `To:             ${receipt.beneficiary}`,
+      `Method:         ${METHODS[m].label}`,
+      `Status:         Completed`,
+      `Settlement:     ${METHODS[m].speed}`,
+      '',
+    ]
+    if (form.beneficiary_bank) lines.push(`Bank:           ${form.beneficiary_bank}`)
+    if (form.beneficiary_account) lines.push(`Account/IBAN:   ${form.beneficiary_account}`)
+    if (form.beneficiary_routing) lines.push(`${m === 'international_wire' ? 'SWIFT/BIC' : 'Routing'}:       ${form.beneficiary_routing}`)
+    if (receipt.target_currency && receipt.target_currency !== 'EUR') {
+      lines.push(`Recipient gets: ${receipt.target_currency} ${(receipt.target_amount || 0).toFixed(2)}`)
+      lines.push(`Rate:           1 EUR = ${receipt.exchange_rate} ${receipt.target_currency}`)
+    }
+    lines.push(`Fee:            ${fmt(receipt.fee)}`)
+    lines.push(`Total debited:  ${fmt(receipt.total)}`)
+    lines.push(`New balance:    ${fmt(receipt.new_balance)}`)
+    lines.push(`Reference:      ${receipt.reference}`)
+    lines.push(`Confirmation:   ${receipt.transaction_id}`)
+    lines.push(`Date:           ${new Date().toLocaleString()}`)
+    lines.push('')
+    lines.push('Keep this receipt for your records.')
+
+    const content = lines.map((l, i) => `BT /F1 11 Tf 50 ${750 - i * 16} Td (${l.replace(/[()\\]/g, '')}) Tj ET`).join('\n')
+    const pdf = `%PDF-1.4
+1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj
+2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj
+3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >> endobj
+4 0 obj << /Length ${content.length} >> stream
+${content}
+endstream endobj
+5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000266 00000 n 
+0000000${(400 + content.length).toString().padStart(3, '0')} 00000 n 
+trailer << /Size 6 /Root 1 0 R >>
+startxref
+${500 + content.length}
+%%EOF`
+    const blob = new Blob([pdf], { type: 'application/pdf' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `GV-Bank-Transfer-${receipt.reference}.pdf`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   return (
     <div className="space-y-6">
       <div className="bg-white rounded-2xl border border-green-200 overflow-hidden">
@@ -990,52 +1051,60 @@ function ReceiptStep({ form, receipt, startOver }: any) {
           </div>
           <div>
             <p className="font-serif text-lg font-bold text-green-900">Transfer Authorized</p>
-            <p className="text-xs text-green-700">Reference {receipt.reference}</p>
+            <p className="text-xs text-green-700 font-mono">Ref {receipt.reference}</p>
           </div>
         </div>
 
-        <div className="px-6 py-5">
+        <div className="px-6 py-5 border-b border-gray-100">
           <p className="text-xs uppercase tracking-widest text-gray-400">Amount sent</p>
           <p className="font-serif text-4xl font-bold text-gray-900 mt-1">{fmt(receipt.amount)}</p>
           <p className="text-sm text-gray-500 mt-1">to <span className="font-semibold text-gray-900">{receipt.beneficiary}</span></p>
         </div>
 
-        <div className="px-6 pb-4 divide-y divide-gray-100 text-sm">
-          <div className="flex justify-between py-2.5"><span className="text-gray-500">Method</span><span className="font-semibold">{METHODS[m].label}</span></div>
-          <div className="flex justify-between py-2.5"><span className="text-gray-500">Status</span><span className="text-green-600 font-semibold">Completed</span></div>
-          <div className="flex justify-between py-2.5"><span className="text-gray-500">Expected settlement</span><span className="font-semibold">{METHODS[m].speed}</span></div>
+        <div className="px-6 py-2 divide-y divide-gray-100 text-sm">
+          <div className="flex justify-between py-3"><span className="text-gray-500">Method</span><span className="font-semibold">{METHODS[m].label}</span></div>
+          <div className="flex justify-between py-3"><span className="text-gray-500">Status</span><span className="text-green-600 font-semibold">Completed</span></div>
+          <div className="flex justify-between py-3"><span className="text-gray-500">Expected settlement</span><span className="font-semibold">{METHODS[m].speed}</span></div>
+          {form.beneficiary_bank && (
+            <div className="flex justify-between py-3"><span className="text-gray-500">Beneficiary bank</span><span className="font-semibold text-right">{form.beneficiary_bank}</span></div>
+          )}
+          {form.beneficiary_account && (
+            <div className="flex justify-between py-3"><span className="text-gray-500">Account / IBAN</span><span className="font-mono text-xs">{form.beneficiary_account}</span></div>
+          )}
+          {form.beneficiary_routing && (
+            <div className="flex justify-between py-3"><span className="text-gray-500">{m === 'international_wire' ? 'SWIFT/BIC' : 'Routing'}</span><span className="font-mono text-xs">{form.beneficiary_routing}</span></div>
+          )}
           {receipt.target_currency && receipt.target_currency !== 'EUR' && (
             <>
-              <div className="flex justify-between py-2.5">
+              <div className="flex justify-between py-3">
                 <span className="text-gray-500">Recipient receives</span>
                 <span className="font-mono font-bold text-navy-600">
                   {receipt.target_currency} {(receipt.target_amount || 0).toLocaleString('en-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </span>
               </div>
-              <div className="flex justify-between py-2.5">
+              <div className="flex justify-between py-3">
                 <span className="text-gray-500">Exchange rate</span>
                 <span className="font-mono text-xs">1 EUR = {receipt.exchange_rate} {receipt.target_currency}</span>
               </div>
             </>
           )}
-          <div className="flex justify-between py-2.5"><span className="text-gray-500">Fee</span><span className="font-mono">{fmt(receipt.fee)}</span></div>
-          <div className="flex justify-between py-2.5"><span className="text-gray-500">Total debited</span><span className="font-mono font-bold">{fmt(receipt.total)}</span></div>
-          <div className="flex justify-between py-2.5"><span className="text-gray-500">New balance</span><span className="font-mono font-bold">{fmt(receipt.new_balance)}</span></div>
-          <div className="flex justify-between py-2.5"><span className="text-gray-500">Reference number</span><span className="font-mono">{receipt.reference}</span></div>
-          <div className="flex justify-between py-2.5"><span className="text-gray-500">Confirmation ID</span><span className="font-mono text-xs">{receipt.transaction_id}</span></div>
-          <div className="flex justify-between py-2.5"><span className="text-gray-500">Date</span><span>{new Date().toLocaleString()}</span></div>
+          <div className="flex justify-between py-3"><span className="text-gray-500">Fee</span><span className="font-mono">{fmt(receipt.fee)}</span></div>
+          <div className="flex justify-between py-3"><span className="text-gray-500">Total debited</span><span className="font-mono font-bold">{fmt(receipt.total)}</span></div>
+          <div className="flex justify-between py-3"><span className="text-gray-500">New balance</span><span className="font-mono font-bold">{fmt(receipt.new_balance)}</span></div>
+          <div className="flex justify-between py-3"><span className="text-gray-500">Reference</span><span className="font-mono">{receipt.reference}</span></div>
+          <div className="flex justify-between py-3"><span className="text-gray-500">Confirmation ID</span><span className="font-mono text-xs">{receipt.transaction_id}</span></div>
+          <div className="flex justify-between py-3"><span className="text-gray-500">Date</span><span>{new Date().toLocaleString()}</span></div>
         </div>
 
         <div className="bg-gray-50 px-6 py-4 border-t border-gray-100 text-xs text-gray-500 leading-relaxed">
-          Keep this receipt for your records. For wire transfers, the beneficiary's bank may take additional time to credit
-          the recipient's account depending on local cut-off times and intermediary banks.
+          Keep this receipt for your records. International wires may take additional time depending on intermediary banks and local cut-off times.
         </div>
       </div>
 
       <div className="flex justify-between gap-3 flex-wrap">
-        <button onClick={() => window.print()}
-                className="px-6 py-3 border border-gray-200 rounded-xl text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-all flex items-center gap-2">
-          <Printer size={16}/> Print receipt
+        <button onClick={downloadPdf}
+                className="px-6 py-3 bg-navy-600 text-white rounded-xl text-sm font-semibold hover:bg-[#1e3a5f] transition-all flex items-center gap-2">
+          <Printer size={16}/> Download PDF
         </button>
         <button onClick={startOver}
                 className="px-8 py-3.5 bg-navy-600 text-white font-semibold rounded-xl hover:bg-[#1e3a5f] transition-all">
