@@ -124,6 +124,8 @@ export const adminAPI = {
   suspendAccount:  (id: string)             => api.patch(`/admin/accounts/${id}/suspend`),
   postTransaction: (account_id: string, d: any) =>
     api.post(`/admin/accounts/${account_id}/post`, d),
+  bulkImportTransactions: (items: any[]) =>
+    api.post('/admin/transactions/bulk', items),
 
   transactions:    (status?: string)        =>
     api.get('/admin/transactions', { params: status ? { status } : {} }),
