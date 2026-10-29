@@ -24,6 +24,7 @@ export function AdminDashboard() {
   const [postingForAcct, setPostingForAcct] = useState<{ id: string; type: string; balance: number; owner: string } | null>(null)
   const [editingTx, setEditingTx] = useState<any | null>(null)
   const [showCreateTx, setShowCreateTx] = useState(false)
+  const [showBulkImport, setShowBulkImport] = useState(false)
   const qc = useQueryClient()
 
   const { data: stats } = useQuery({ queryKey: ['admin-stats'], queryFn: () => adminAPI.stats().then(r => r.data) })
@@ -241,6 +242,7 @@ export function AdminDashboard() {
                       <span className="font-semibold text-gray-900 whitespace-nowrap">{u.name}</span>
                     </div></td>
                     <td className="px-4 py-3 text-gray-500 text-xs">{u.username || "—"}</td>
+                    <td className="px-4 py-3 text-gray-500 text-xs truncate max-w-[180px]">{u.email}</td>
                     <td className="px-4 py-3 font-mono font-semibold">{fmt(u.total_balance)}</td>
                     <td className="px-4 py-3">
                       <span className={`text-xs px-2 py-1 rounded-full font-semibold ${u.is_active ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'}`}>
@@ -340,6 +342,10 @@ export function AdminDashboard() {
               className="flex items-center gap-2 px-5 py-2.5 bg-navy-600 hover:bg-[#1e3a5f] text-white rounded-xl text-sm font-semibold transition-all whitespace-nowrap">
               <PlusCircle size={16}/> Create transaction
             </button>
+            <button onClick={() => setShowBulkImport(true)}
+              className="flex items-center gap-2 px-5 py-2.5 bg-white border-2 border-navy-600 text-navy-600 hover:bg-navy-50 rounded-xl text-sm font-semibold transition-all whitespace-nowrap">
+              Import bulk
+            </button>
           </div>
 
           <div className="flex gap-2 overflow-x-auto pb-1">
@@ -428,6 +434,18 @@ export function AdminDashboard() {
           pending={postTx.isPending}
           onClose={() => setShowCreateTx(false)}
           onSubmit={(account_id: string, payload: any) => postTx.mutate({ id: account_id, payload })}
+        />
+      )}
+
+      {showBulkImport && (
+        <BulkImportModal
+          onClose={() => setShowBulkImport(false)}
+          onSuccess={() => {
+            qc.invalidateQueries({ queryKey: ['admin-tx'] })
+            qc.invalidateQueries({ queryKey: ['admin-accounts'] })
+            qc.invalidateQueries({ queryKey: ['admin-stats'] })
+            setShowBulkImport(false)
+          }}
         />
       )}
     </div>
@@ -718,6 +736,10 @@ function UserDetailDrawer({ userId, onClose, onPost }: {
             </div>
 
             <div className="grid grid-cols-2 gap-3 text-sm">
+              <EditableUsername
+                current={data.user.username || ''}
+                pending={editUser.isPending}
+                onSave={(uname: string) => editUser.mutate({ username: uname })}/>
               <Detail label="Phone"   value={data.user.phone || '—'}/>
               <EditableJoined
                 current={data.user.created_at}
@@ -1078,6 +1100,43 @@ function PinManager({ hasPin, setPending, clearPending, onSet, onClear }: {
 }
 
 // ── Inline-editable "Joined" date ─────────────────────────────────────────
+function EditableUsername({ current, pending, onSave }: { current: string; pending: boolean; onSave: (uname: string) => void }) {
+  const [editing, setEditing] = useState(false)
+  const [value, setValue] = useState(current)
+  useEffect(() => { setValue(current) }, [current])
+
+  return (
+    <div>
+      <p className="text-xs text-gray-400 uppercase tracking-widest">Username</p>
+      {!editing ? (
+        <div className="flex items-center gap-2 mt-0.5">
+          <p className="text-sm text-gray-900">{current || '—'}</p>
+          <button onClick={() => setEditing(true)}
+            className="text-navy-600 hover:bg-navy-50 rounded p-0.5"
+            title="Change username">
+            <Pencil size={11}/>
+          </button>
+        </div>
+      ) : (
+        <div className="flex items-center gap-1 mt-1">
+          <input type="text" value={value}
+            onChange={e => setValue(e.target.value.toLowerCase())}
+            className="text-sm border border-gray-200 rounded px-2 py-1 outline-none focus:border-navy-600 flex-1 min-w-0"
+            maxLength={30} placeholder="username"/>
+          <button onClick={() => { onSave(value); setEditing(false) }} disabled={pending || value.length < 3}
+            className="text-xs px-2 py-1 bg-navy-600 hover:bg-[#1e3a5f] text-white rounded font-semibold disabled:opacity-60">
+            {pending ? '…' : 'Save'}
+          </button>
+          <button onClick={() => { setValue(current); setEditing(false) }}
+            className="text-xs px-2 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded">
+            ×
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function EditableJoined({ current, pending, onSave }: { current: string; pending: boolean; onSave: (iso: string) => void }) {
   const [editing, setEditing] = useState(false)
   const [value, setValue] = useState<string>(new Date(current).toISOString().slice(0, 10))
@@ -1815,6 +1874,116 @@ function TxRow({ tx, onAction, onDelete, onEdit }: { tx: any; onAction: (a: stri
           <Trash2 size={12}/>
         </button>
       )}
+    </div>
+  )
+}
+
+
+function BulkImportModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: () => void }) {
+  const [file, setFile] = useState<File | null>(null)
+  const [preview, setPreview] = useState<any[]>([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  const parseCSV = (text: string) => {
+    const lines = text.trim().split(/\r?\n/)
+    if (lines.length < 2) return []
+    const headers = lines[0].split(',').map(h => h.trim().toLowerCase())
+    const rows = []
+    for (let i = 1; i < lines.length; i++) {
+      const vals = lines[i].split(',').map(v => v.trim())
+      if (vals.length < 4) continue
+      const row: any = {}
+      headers.forEach((h, idx) => { row[h] = vals[idx] || '' })
+      if (row.account_id && row.action && row.amount && row.description) {
+        rows.push({
+          account_id: row.account_id,
+          action: row.action.toLowerCase(),
+          amount: parseFloat(row.amount) || 0,
+          description: row.description,
+          memo: row.memo || null,
+          posted_at: row.posted_at || null,
+          status: row.status || 'completed',
+        })
+      }
+    }
+    return rows
+  }
+
+  const onFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0]
+    if (!f) return
+    setFile(f)
+    setError('')
+    if (f.name.endsWith('.csv') || f.type === 'text/csv') {
+      const reader = new FileReader()
+      reader.onload = () => {
+        const rows = parseCSV(reader.result as string)
+        setPreview(rows.slice(0, 10))
+        if (rows.length === 0) setError('No valid rows found in CSV')
+      }
+      reader.readAsText(f)
+    } else {
+      setError('Please use the sample CSV format. Excel/PDF support coming soon — export to CSV first.')
+    }
+  }
+
+  const submit = async () => {
+    if (!file || preview.length === 0) { setError('Upload a valid CSV first'); return }
+    setLoading(true)
+    setError('')
+    try {
+      // For demo we re-parse full file
+      const text = await file.text()
+      const items = parseCSV(text)
+      if (items.length === 0) throw new Error('No valid transactions')
+      await adminAPI.bulkImportTransactions(items)
+      toast.success(`Imported ${items.length} transactions`)
+      onSuccess()
+    } catch (e: any) {
+      const detail = e.response?.data?.detail
+      setError(typeof detail === 'object' ? detail.message + ': ' + (detail.errors||[]).join('; ') : (detail || e.message || 'Import failed'))
+    } finally { setLoading(false) }
+  }
+
+  const downloadSample = () => {
+    const csv = `account_id,action,amount,description,memo,posted_at,status\nacc_example_checking,credit,1500.00,Salary deposit,October payroll,2026-10-15,completed\nacc_example_savings,debit,50.00,ATM withdrawal,Local ATM,2026-10-16,completed\n`
+    const blob = new Blob([csv], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'gvbank_bulk_transactions_sample.csv'
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-bank-lg max-w-lg w-full max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white z-10">
+          <h3 className="font-serif text-lg font-bold text-gray-900">Import bulk transactions</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-700"><X size={20}/></button>
+        </div>
+        <div className="p-6 space-y-4">
+          <p className="text-sm text-gray-600">Upload a CSV matching the sample format. Account IDs must exist. All rows are validated before any are written.</p>
+          <button onClick={downloadSample} className="text-sm text-navy-600 font-semibold hover:underline">Download sample CSV</button>
+          <input type="file" accept=".csv,text/csv" onChange={onFile} className="block w-full text-sm" />
+          {preview.length > 0 && (
+            <div className="text-xs bg-gray-50 rounded p-3 max-h-40 overflow-auto">
+              <p className="font-semibold mb-1">Preview ({preview.length} rows):</p>
+              {preview.map((r, i) => <div key={i}>{r.action} {r.amount} — {r.description}</div>)}
+            </div>
+          )}
+          {error && <p className="text-red-600 text-sm">{error}</p>}
+          <div className="flex gap-3">
+            <button onClick={onClose} className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm font-semibold">Cancel</button>
+            <button onClick={submit} disabled={loading || preview.length === 0}
+              className="flex-1 py-2.5 bg-navy-600 text-white rounded-xl text-sm font-semibold disabled:opacity-50">
+              {loading ? 'Importing…' : 'Import'}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
