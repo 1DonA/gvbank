@@ -28,6 +28,15 @@ def _validate_username(value: str) -> str:
     return u
 
 
+def _mask_email(email: str) -> str:
+    """Mask email as first 3 chars + ***** + @domain (e.g. joh*****@domain.com)."""
+    local, _, domain = (email or "").partition("@")
+    if not domain:
+        return email or ""
+    prefix = local[:3]
+    return f"{prefix}*****@{domain}"
+
+
 async def _user_by_username(db: AsyncSession, username: str):
     u = _normalize_username(username)
     result = await db.execute(select(User).where(User.username == u))
@@ -46,7 +55,7 @@ async def _user_by_login_id(db: AsyncSession, login_id: str):
     result = await db.execute(select(User).where(User.email == raw.lower()))
     return result.scalars().first()
 
-# ── Trusted-device helpers ────────────────────────────────────────────────
+# ── Trusted-device helpers ────────────────────────────────────────────────────────────────
 DEVICE_TRUST_DAYS = 90
 
 async def _is_device_trusted(db: AsyncSession, user_id: str, device_token: Optional[str]) -> bool:
@@ -184,7 +193,7 @@ class ResetPasswordRequest(BaseModel):
     new_password: str = Field(min_length=8)
 
 
-# ── Register ───────────────────────────────────────────────────────────────
+# ── Register ────────────────────────────────────────────────────────────────
 @router.post("/register")
 async def register(data: RegisterRequest, db: AsyncSession = Depends(get_db)):
     # Compliance: all three consents required
@@ -293,7 +302,7 @@ async def register(data: RegisterRequest, db: AsyncSession = Depends(get_db)):
     }
 
 
-# ── Login ──────────────────────────────────────────────────────────────────
+# ── Login ────────────────────────────────────────────────────────────────
 @router.post("/login/initiate")
 async def login_initiate(data: LoginRequest, request: Request, db: AsyncSession = Depends(get_db)):
     user = await _user_by_login_id(db, data.username)
@@ -312,90 +321,42 @@ async def login_initiate(data: LoginRequest, request: Request, db: AsyncSession 
                      "role": user.role.value, "email": user.email},
         }
 
-    # Is this a recognized device? Recognized devices skip OTP but still need PIN.
-    trusted = await _is_device_trusted(db, user.id, data.device_token)
-
-    # Admin-created accounts get a one-time bypass on their first login.
-    first_login_bypass = bool(getattr(user, "skip_first_otp", False))
-
-    # If admin set a PIN, ask for it first. OTP (or not) will be decided after PIN.
+    # Always require PIN (if set) then OTP for customers. No device or first-login bypass.
     if user.transaction_pin_hash:
-        skip_otp_next = trusted or first_login_bypass
         return {
             "requires_pin": True,
             "requires_otp": False,
-            "device_trusted": skip_otp_next,
             "user_id": user.id,
-            "message": (
-                "Please enter your 4-digit transaction PIN to continue."
-                if skip_otp_next else
-                "Please enter your 4-digit transaction PIN. We'll then send you a one-time code."
-            ),
+            "message": "Please enter your 4-digit transaction PIN. We'll then send you a one-time code.",
         }
 
-    # No PIN set. Trusted device OR admin-created first login → issue token.
-    if trusted or first_login_bypass:
-        if first_login_bypass:
-            user.skip_first_otp = False    # one-shot: burn it now
-        await db.flush()
-        token = create_access_token({"sub": user.id, "role": user.role.value})
-        # Also mint a device_token so this browser is trusted for the next 90 days
-        device_token = await _issue_device_token(db, user, "")
-        return {
-            "requires_otp": False, "requires_pin": False,
-            "access_token": token, "token_type": "bearer",
-            "device_token": device_token,
-            "user": {"id": user.id, "name": f"{user.first_name} {user.last_name}",
-                     "email": user.email, "role": user.role.value, "phone": user.phone},
-        }
-
+    # No PIN set — still require OTP.
     await dispatch_otp(db, user, "login")
-    local, _, domain = user.email.partition("@")
-    masked_email = (local[:2] if len(local) >= 2 else local) + "***@" + domain
+    masked_email = _mask_email(user.email)
     masked_phone = ("***" + user.phone[-4:]) if user.phone else "N/A"
     return {
         "requires_otp": True, "requires_pin": False, "user_id": user.id,
-        "message": f"New device detected. Verification code sent to {masked_email} and {masked_phone}",
+        "masked_email": masked_email,
+        "message": f"Verification code sent to {masked_email} and {masked_phone}",
     }
 
 
 @router.post("/login/verify-pin")
 async def login_verify_pin(data: PinVerifyRequest, request: Request, db: AsyncSession = Depends(get_db)):
-    """Verify the 4-digit transaction PIN. If the device is trusted, we issue
-    the JWT immediately; otherwise we dispatch an OTP and require /login/verify."""
+    """Verify the 4-digit transaction PIN. Always dispatch OTP afterward for customers."""
     user = await _user_by_login_id(db, data.username)
     if not user or not user.transaction_pin_hash:
         raise HTTPException(400, "No PIN is set for this account")
     if not verify_password(data.pin.strip(), user.transaction_pin_hash):
         raise HTTPException(401, "Incorrect PIN")
 
-    # Trusted device OR admin-created first login → PIN alone is enough.
-    trusted = await _is_device_trusted(db, user.id, data.device_token)
-    first_login_bypass = bool(getattr(user, "skip_first_otp", False))
-    if trusted or first_login_bypass:
-        if first_login_bypass:
-            user.skip_first_otp = False    # one-shot: burn it now
-        if not user.is_verified:
-            user.is_verified = True
-        # Mint device_token so subsequent logins skip OTP naturally.
-        device_token = await _issue_device_token(db, user, "")
-        await db.flush()
-        token = create_access_token({"sub": user.id, "role": user.role.value})
-        return {
-            "requires_otp": False,
-            "access_token": token, "token_type": "bearer",
-            "device_token": device_token,
-            "user": {"id": user.id, "name": f"{user.first_name} {user.last_name}",
-                     "email": user.email, "role": user.role.value, "phone": user.phone},
-        }
-
-    # New device → dispatch OTP.
+    # Always dispatch OTP after PIN for customers.
     await dispatch_otp(db, user, "login")
-    local, _, domain = user.email.partition("@")
-    masked_email = (local[:2] if len(local) >= 2 else local) + "***@" + domain
+    masked_email = _mask_email(user.email)
     masked_phone = ("***" + user.phone[-4:]) if user.phone else "N/A"
     return {
         "requires_otp": True,
+        "masked_email": masked_email,
         "message": f"PIN verified. Code sent to {masked_email} and {masked_phone}",
     }
 
@@ -429,7 +390,7 @@ async def login_verify(data: OTPVerifyRequest, request: Request, db: AsyncSessio
     }
 
 
-# ── Forgot / reset password ───────────────────────────────────────────────
+# ── Forgot / reset password ───────────────────────────────────────────────────
 @router.post("/forgot-password")
 async def forgot_password(data: ForgotPasswordRequest, db: AsyncSession = Depends(get_db)):
     """Send a password-reset OTP. Always returns 200 so we don't leak which
