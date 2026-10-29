@@ -11,7 +11,7 @@ type Step = 'credentials' | 'pin' | 'otp'
 
 export function LoginPage() {
   const navigate = useNavigate()
-  const { setAuth, setDeviceToken } = useAuthStore()
+  const { setAuth } = useAuthStore()
   const [step, setStep] = useState<Step>('credentials')
   const [showPw, setShowPw] = useState(false)
   const [otp, setOtp] = useState<string[]>(Array(6).fill(''))
@@ -25,7 +25,6 @@ export function LoginPage() {
 
   const completeLogin = async (user: any, access_token: string, device_token?: string) => {
     try {
-      if (device_token) setDeviceToken(device_token)
       setAuth(user, access_token)
       try { await supportAPI.resetMyChat() } catch { /* non-fatal */ }
       toast.success('Welcome back')
