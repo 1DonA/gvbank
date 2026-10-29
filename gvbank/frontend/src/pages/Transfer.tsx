@@ -85,7 +85,7 @@ function deriveRecentRecipients(transactions: any[]): RecentRecipient[] {
   return Array.from(seen.values())
 }
 
-type Step = 'method' | 'beneficiary' | 'amount' | 'review' | 'pin' | 'processing' | 'authorize' | 'receipt'
+type Step = 'method' | 'beneficiary' | 'amount' | 'review' | 'pin' | 'processing' | 'authorize' | 'authorizing' | 'ready' | 'receipt'
 
 interface FormState {
   // method & source
@@ -188,7 +188,7 @@ export function TransferPage() {
     mutationFn: (payload: any) => transferAPI.verify(payload),
     onSuccess: (res) => {
       setReceipt(res.data)
-      setStep('receipt')
+      setStep('authorizing')
     },
     onError: (e: any) => {
       toast.error(e.response?.data?.detail || 'Invalid authorization code')
@@ -297,6 +297,8 @@ export function TransferPage() {
       {step === 'pin'         && <PinStep pin={pin} setPin={setPin} amount={amountNum} beneficiary={form.beneficiary_name || (form.method === 'internal' ? 'your account' : form.to_destination)} back={() => setStep('review')} next={submitTransfer}/>}
       {step === 'processing'  && <ProcessingStep amount={amountNum} beneficiary={form.beneficiary_name || (form.method === 'internal' ? 'your account' : form.to_destination)} method={form.method}/>}
       {step === 'authorize'   && <AuthorizeStep otp={otp} setOtp={setOtp} pending={verifyMutation.isPending} submit={submitOtp} resend={resendOtp} cancel={() => setStep('review')}/>}
+      {step === 'authorizing' && <ProcessingAfterOtp onDone={() => setStep('ready')} />}
+      {step === 'ready'       && <ReadyStep onProceed={() => setStep('receipt')} />}
       {step === 'receipt'     && receipt && <ReceiptStep form={form} receipt={receipt} startOver={startOver}/>}
     </div>
   )
@@ -982,64 +984,73 @@ function AuthorizeStep({ otp, setOtp, pending, submit, resend, cancel }: any) {
 function ReceiptStep({ form, receipt, startOver }: any) {
   const m = form.method as Method
 
-  const downloadPdf = () => {
-    const lines = [
-      'GV UNION BANK',
-      'Member FDIC',
-      '',
-      'TRANSFER RECEIPT',
-      '',
-      `Amount sent:    ${fmt(receipt.amount)}`,
-      `To:             ${receipt.beneficiary}`,
-      `Method:         ${METHODS[m].label}`,
-      `Status:         Completed`,
-      `Settlement:     ${METHODS[m].speed}`,
-      '',
-    ]
-    if (form.beneficiary_bank) lines.push(`Bank:           ${form.beneficiary_bank}`)
-    if (form.beneficiary_account) lines.push(`Account/IBAN:   ${form.beneficiary_account}`)
-    if (form.beneficiary_routing) lines.push(`${m === 'international_wire' ? 'SWIFT/BIC' : 'Routing'}:       ${form.beneficiary_routing}`)
-    if (receipt.target_currency && receipt.target_currency !== 'EUR') {
-      lines.push(`Recipient gets: ${receipt.target_currency} ${(receipt.target_amount || 0).toFixed(2)}`)
-      lines.push(`Rate:           1 EUR = ${receipt.exchange_rate} ${receipt.target_currency}`)
+  const openOfficial = () => {
+    const html = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8"/>
+<title>GV Union Bank — Transfer ${receipt.reference}</title>
+<style>
+  @page { margin: 18mm; }
+  body { font-family: Georgia, 'Times New Roman', serif; color: #0a1628; margin: 0; padding: 36px; background: #fff; }
+  .header { display: flex; align-items: center; justify-content: space-between; border-bottom: 3px solid #c9a84c; padding-bottom: 14px; margin-bottom: 20px; }
+  .logo { display: flex; align-items: center; gap: 12px; }
+  .logo-mark { width: 52px; height: 52px; background: linear-gradient(135deg, #c9a84c, #e8c97a); border-radius: 12px; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 24px; color: #0a1628; }
+  .bank-name { font-size: 22px; font-weight: 700; }
+  .tagline { font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: #c9a84c; margin-top: 2px; }
+  .receipt-title { font-size: 13px; letter-spacing: 0.18em; text-transform: uppercase; color: #6b6560; }
+  .amount { font-size: 34px; font-weight: 700; margin: 6px 0 2px; }
+  .to { color: #6b6560; margin-bottom: 16px; }
+  .badge { display: inline-block; background: #0a1628; color: #c9a84c; font-size: 10px; letter-spacing: 0.1em; padding: 4px 10px; border-radius: 4px; }
+  table { width: 100%; border-collapse: collapse; margin: 14px 0; }
+  td { padding: 9px 0; border-bottom: 1px solid #e4e2dc; vertical-align: top; }
+  td.label { color: #6b6560; width: 42%; font-size: 13px; }
+  td.value { font-weight: 600; text-align: right; font-size: 13px; }
+  .footer { margin-top: 28px; padding-top: 14px; border-top: 1px solid #e4e2dc; font-size: 11px; color: #9a9589; line-height: 1.6; }
+</style>
+</head>
+<body>
+  <div class="header">
+    <div class="logo">
+      <div class="logo-mark">G</div>
+      <div>
+        <div class="bank-name">GV Union Bank</div>
+        <div class="tagline">Member FDIC · Equal Housing Lender</div>
+      </div>
+    </div>
+    <div class="receipt-title">Official Transfer Receipt</div>
+  </div>
+  <div class="amount">${fmt(receipt.amount)}</div>
+  <div class="to">to <strong>${receipt.beneficiary}</strong></div>
+  <div class="badge">PENDING · COMPLETES IN ~5 MIN</div>
+  <table>
+    <tr><td class="label">Method</td><td class="value">${METHODS[m].label}</td></tr>
+    <tr><td class="label">Status</td><td class="value">Pending</td></tr>
+    <tr><td class="label">Expected settlement</td><td class="value">${METHODS[m].speed}</td></tr>
+    ${form.beneficiary_bank ? `<tr><td class="label">Beneficiary bank</td><td class="value">${form.beneficiary_bank}</td></tr>` : ''}
+    ${form.beneficiary_account ? `<tr><td class="label">Account / IBAN</td><td class="value" style="font-family:monospace">${form.beneficiary_account}</td></tr>` : ''}
+    ${form.beneficiary_routing ? `<tr><td class="label">${m === 'international_wire' ? 'SWIFT/BIC' : 'Routing'}</td><td class="value" style="font-family:monospace">${form.beneficiary_routing}</td></tr>` : ''}
+    ${receipt.target_currency && receipt.target_currency !== 'EUR' ? `<tr><td class="label">Recipient receives</td><td class="value">${receipt.target_currency} ${(receipt.target_amount || 0).toFixed(2)}</td></tr><tr><td class="label">Exchange rate</td><td class="value">1 EUR = ${receipt.exchange_rate} ${receipt.target_currency}</td></tr>` : ''}
+    <tr><td class="label">Fee</td><td class="value">${fmt(receipt.fee)}</td></tr>
+    <tr><td class="label">Total debited</td><td class="value">${fmt(receipt.total)}</td></tr>
+    <tr><td class="label">Reference</td><td class="value" style="font-family:monospace">${receipt.reference}</td></tr>
+    <tr><td class="label">Confirmation ID</td><td class="value" style="font-family:monospace;font-size:11px">${receipt.transaction_id}</td></tr>
+    <tr><td class="label">Date</td><td class="value">${new Date().toLocaleString()}</td></tr>
+  </table>
+  <div class="footer">
+    This is an official electronic receipt issued by GV Union Bank, N.A.<br/>
+    Your transfer is pending and will complete in approximately 5 minutes.<br/>
+    For questions contact your account officer or security@gvunionbank.com<br/>
+    Generated ${new Date().toLocaleString()} · Member FDIC
+  </div>
+</body>
+</html>`
+    const w = window.open('', '_blank')
+    if (w) {
+      w.document.write(html)
+      w.document.close()
+      setTimeout(() => w.print(), 300)
     }
-    lines.push(`Fee:            ${fmt(receipt.fee)}`)
-    lines.push(`Total debited:  ${fmt(receipt.total)}`)
-    lines.push(`New balance:    ${fmt(receipt.new_balance)}`)
-    lines.push(`Reference:      ${receipt.reference}`)
-    lines.push(`Confirmation:   ${receipt.transaction_id}`)
-    lines.push(`Date:           ${new Date().toLocaleString()}`)
-    lines.push('')
-    lines.push('Keep this receipt for your records.')
-
-    const content = lines.map((l, i) => `BT /F1 11 Tf 50 ${750 - i * 16} Td (${l.replace(/[()\\]/g, '')}) Tj ET`).join('\n')
-    const pdf = `%PDF-1.4
-1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj
-2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj
-3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >> endobj
-4 0 obj << /Length ${content.length} >> stream
-${content}
-endstream endobj
-5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj
-xref
-0 6
-0000000000 65535 f 
-0000000009 00000 n 
-0000000058 00000 n 
-0000000115 00000 n 
-0000000266 00000 n 
-0000000${(400 + content.length).toString().padStart(3, '0')} 00000 n 
-trailer << /Size 6 /Root 1 0 R >>
-startxref
-${500 + content.length}
-%%EOF`
-    const blob = new Blob([pdf], { type: 'application/pdf' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `GV-Bank-Transfer-${receipt.reference}.pdf`
-    a.click()
-    URL.revokeObjectURL(url)
   }
 
   return (
@@ -1050,20 +1061,21 @@ ${500 + content.length}
             <CheckCircle2 size={20}/>
           </div>
           <div>
-            <p className="font-serif text-lg font-bold text-green-900">Transfer Authorized</p>
+            <p className="font-serif text-lg font-bold text-green-900">Transfer Submitted</p>
             <p className="text-xs text-green-700 font-mono">Ref {receipt.reference}</p>
           </div>
         </div>
-
         <div className="px-6 py-5 border-b border-gray-100">
-          <p className="text-xs uppercase tracking-widest text-gray-400">Amount sent</p>
+          <p className="text-xs uppercase tracking-widest text-gray-400">Amount</p>
           <p className="font-serif text-4xl font-bold text-gray-900 mt-1">{fmt(receipt.amount)}</p>
           <p className="text-sm text-gray-500 mt-1">to <span className="font-semibold text-gray-900">{receipt.beneficiary}</span></p>
+          <span className="inline-block mt-2 text-[10px] font-bold uppercase tracking-widest bg-amber-50 text-amber-700 border border-amber-100 px-2 py-0.5 rounded-full">
+            Pending · completes in ~5 min
+          </span>
         </div>
-
         <div className="px-6 py-2 divide-y divide-gray-100 text-sm">
           <div className="flex justify-between py-3"><span className="text-gray-500">Method</span><span className="font-semibold">{METHODS[m].label}</span></div>
-          <div className="flex justify-between py-3"><span className="text-gray-500">Status</span><span className="text-green-600 font-semibold">Completed</span></div>
+          <div className="flex justify-between py-3"><span className="text-gray-500">Status</span><span className="text-amber-600 font-semibold">Pending</span></div>
           <div className="flex justify-between py-3"><span className="text-gray-500">Expected settlement</span><span className="font-semibold">{METHODS[m].speed}</span></div>
           {form.beneficiary_bank && (
             <div className="flex justify-between py-3"><span className="text-gray-500">Beneficiary bank</span><span className="font-semibold text-right">{form.beneficiary_bank}</span></div>
@@ -1090,27 +1102,70 @@ ${500 + content.length}
           )}
           <div className="flex justify-between py-3"><span className="text-gray-500">Fee</span><span className="font-mono">{fmt(receipt.fee)}</span></div>
           <div className="flex justify-between py-3"><span className="text-gray-500">Total debited</span><span className="font-mono font-bold">{fmt(receipt.total)}</span></div>
-          <div className="flex justify-between py-3"><span className="text-gray-500">New balance</span><span className="font-mono font-bold">{fmt(receipt.new_balance)}</span></div>
           <div className="flex justify-between py-3"><span className="text-gray-500">Reference</span><span className="font-mono">{receipt.reference}</span></div>
           <div className="flex justify-between py-3"><span className="text-gray-500">Confirmation ID</span><span className="font-mono text-xs">{receipt.transaction_id}</span></div>
           <div className="flex justify-between py-3"><span className="text-gray-500">Date</span><span>{new Date().toLocaleString()}</span></div>
         </div>
-
         <div className="bg-gray-50 px-6 py-4 border-t border-gray-100 text-xs text-gray-500 leading-relaxed">
-          Keep this receipt for your records. International wires may take additional time depending on intermediary banks and local cut-off times.
+          Your transfer is pending and will complete in approximately 5 minutes. Keep this receipt for your records.
         </div>
       </div>
-
       <div className="flex justify-between gap-3 flex-wrap">
-        <button onClick={downloadPdf}
+        <button onClick={openOfficial}
                 className="px-6 py-3 bg-navy-600 text-white rounded-xl text-sm font-semibold hover:bg-[#1e3a5f] transition-all flex items-center gap-2">
-          <Printer size={16}/> Download PDF
+          <Printer size={16}/> Official PDF
         </button>
         <button onClick={startOver}
-                className="px-8 py-3.5 bg-navy-600 text-white font-semibold rounded-xl hover:bg-[#1e3a5f] transition-all">
+                className="px-8 py-3.5 border border-gray-200 text-gray-700 font-semibold rounded-xl hover:bg-gray-50 transition-all">
           Make Another Transfer →
         </button>
       </div>
+    </div>
+  )
+}
+
+function ProcessingAfterOtp({ onDone }: { onDone: () => void }) {
+  useEffect(() => {
+    const t = setTimeout(onDone, 2800)
+    return () => clearTimeout(t)
+  }, [onDone])
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 p-10 text-center space-y-6">
+      <div className="relative w-20 h-20 mx-auto">
+        <div className="absolute inset-0 rounded-full border-4 border-navy-100" />
+        <div className="absolute inset-0 rounded-full border-4 border-navy-600 border-t-transparent animate-spin" />
+        <div className="absolute inset-3 rounded-full bg-navy-50 flex items-center justify-center">
+          <Shield size={24} className="text-navy-600" />
+        </div>
+      </div>
+      <div>
+        <p className="font-serif text-xl font-bold text-gray-900">Authorizing transfer</p>
+        <p className="text-sm text-gray-500 mt-1">Securing your transaction with the bank…</p>
+      </div>
+      <div className="flex justify-center gap-1.5">
+        <span className="w-2 h-2 bg-navy-600 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+        <span className="w-2 h-2 bg-navy-600 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+        <span className="w-2 h-2 bg-navy-600 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+      </div>
+    </div>
+  )
+}
+
+function ReadyStep({ onProceed }: { onProceed: () => void }) {
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 p-10 text-center space-y-6">
+      <div className="w-16 h-16 rounded-full bg-green-50 flex items-center justify-center mx-auto">
+        <CheckCircle2 size={32} className="text-green-600" />
+      </div>
+      <div>
+        <p className="font-serif text-xl font-bold text-gray-900">Transfer authorized</p>
+        <p className="text-sm text-gray-500 mt-1">Your transfer has been submitted and is pending.</p>
+      </div>
+      <button onClick={onProceed}
+        className="px-10 py-3.5 bg-navy-600 text-white font-semibold rounded-xl hover:bg-[#1e3a5f] transition-all">
+        View Receipt →
+      </button>
     </div>
   )
 }
