@@ -4,6 +4,7 @@ from sqlalchemy import select
 from pydantic import BaseModel, Field
 from typing import Optional, Literal
 import uuid, random, string
+from datetime import datetime, timedelta
 
 from app.core.database import get_db
 from app.models.models import Account, Transaction, TxType, TxStatus, AccountStatus, User
@@ -24,7 +25,6 @@ router = APIRouter()
 # ── Helpers ────────────────────────────────────────────────────────────────
 def _generate_reference(prefix: str = "GVB") -> str:
     """Human-readable wire reference, e.g. GVB-20260522-7C3F2A1."""
-    from datetime import datetime
     stamp = datetime.utcnow().strftime("%Y%m%d")
     suffix = ''.join(random.choices(string.ascii_uppercase + string.digits, k=7))
     return f"{prefix}-{stamp}-{suffix}"
@@ -79,6 +79,36 @@ def convert_from_eur(amount_eur: float, target: str) -> tuple[float, float]:
         target = "EUR"
     rate = FX_RATES[target]["rate"]
     return round(amount_eur * rate, 2), rate
+
+
+async def _auto_complete_pending(db: AsyncSession, txs: list):
+    """If a PENDING transfer's AUTO_COMPLETE_AT time has passed, complete it and deduct balance."""
+    now = datetime.utcnow()
+    changed = False
+    for t in txs:
+        if t.status != TxStatus.PENDING:
+            continue
+        note = t.admin_note or ""
+        if not note.startswith("AUTO_COMPLETE_AT:"):
+            continue
+        try:
+            completes_at = datetime.fromisoformat(note.split(":", 1)[1])
+        except Exception:
+            continue
+        if now >= completes_at:
+            acct_res = await db.execute(select(Account).where(Account.id == t.account_id))
+            acct = acct_res.scalars().first()
+            if acct:
+                total = abs(t.amount) + (t.fee or 0)
+                if acct.balance >= total:
+                    acct.balance += t.amount
+                    if t.fee:
+                        acct.balance -= t.fee
+                    t.status = TxStatus.COMPLETED
+                    t.admin_note = None
+                    changed = True
+    if changed:
+        await db.flush()
 
 
 @router.get("/currencies")
@@ -300,37 +330,17 @@ async def verify_transfer(
         tx.status = TxStatus.FAILED
         raise HTTPException(400, "Insufficient funds at confirmation time")
 
-    # Debit sender for amount + fee.
-    # tx.amount is stored as negative for the principal, fee debited separately.
-    acct.balance += tx.amount
-    if tx.fee:
-        acct.balance -= tx.fee
-
-    # If destination is an internal account ID (matches one of our Account rows), credit them
-    # and post a matching credit-leg transaction.
-    dest_result = await db.execute(select(Account).where(Account.id == tx.to_account))
-    dest_acct = dest_result.scalars().first()
-    if dest_acct is not None and dest_acct.id != acct.id:
-        dest_acct.balance += abs(tx.amount)
-        credit_tx = Transaction(
-            id=str(uuid.uuid4()),
-            account_id=dest_acct.id,
-            tx_type=tx.tx_type,
-            status=TxStatus.COMPLETED,
-            amount=abs(tx.amount),
-            description=f"Transfer from {acct.account_type.value} ****{acct.account_number[-4:]}",
-            memo=tx.memo,
-            to_account=acct.id,
-            category=tx.category,
-            transfer_method=tx.transfer_method,
-            reference=tx.reference,
-        )
-        db.add(credit_tx)
-
-    tx.status = TxStatus.COMPLETED
+    # Leave PENDING for 5 minutes. Do not deduct balance yet.
+    # Admin can approve (complete now) or reject/hold before auto-complete.
+    completes_at = datetime.utcnow() + timedelta(minutes=5)
+    tx.admin_note = f"AUTO_COMPLETE_AT:{completes_at.isoformat()}"
+    # status stays PENDING
+    await db.flush()
 
     return {
-        "message": "Transfer authorized successfully",
+        "message": "Transfer authorized. It will complete in approximately 5 minutes.",
+        "status": "pending",
+        "completes_at": completes_at.isoformat(),
         "new_balance": acct.balance,
         "transaction_id": tx.id,
         "reference": tx.reference,
@@ -362,6 +372,8 @@ async def get_all_transactions(
         .limit(limit)
     )
     txs = result.scalars().all()
+    # Auto-complete any pending transfers whose 5-minute window has passed
+    await _auto_complete_pending(db, txs)
     return [{
         "id": t.id,
         "type": t.tx_type.value,
