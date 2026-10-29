@@ -121,6 +121,8 @@ export function StatementsPage() {
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
   const [selected, setSelected] = useState<Tx | null>(null)
+  const [page, setPage] = useState(1)
+  const PAGE_SIZE = 20
 
   const { data: accounts = [] } = useQuery({ queryKey: ['accounts'], queryFn: () => accountsAPI.list().then(r => r.data) })
   const { data: allTx = [], isLoading } = useQuery({
@@ -143,6 +145,9 @@ export function StatementsPage() {
       return true
     })
   }, [allTx, type, status, method, search, from, to])
+
+  // Reset to page 1 when filters change
+  useMemo(() => { setPage(1) }, [type, status, method, search, from, to])
 
   const totals = useMemo(() => {
     let credits = 0, debits = 0, fees = 0
@@ -326,7 +331,16 @@ export function StatementsPage() {
             <p className="text-gray-400 text-sm">No transactions match your filters</p>
           </div>
         )}
-        {grouped.map(([month, txs]) => {
+        {(() => {
+          const start = (page - 1) * PAGE_SIZE
+          const paged = filtered.slice(start, start + PAGE_SIZE)
+          const pagedGrouped = new Map<string, Tx[]>()
+          for (const t of paged) {
+            const key = t.created_at.slice(0, 7)
+            if (!pagedGrouped.has(key)) pagedGrouped.set(key, [])
+            pagedGrouped.get(key)!.push(t)
+          }
+          return Array.from(pagedGrouped.entries()).sort((a, b) => b[0].localeCompare(a[0])).map(([month, txs]) => {
           const monthCredits = txs.filter(t => t.amount > 0).reduce((s, t) => s + t.amount, 0)
           const monthDebits = txs.filter(t => t.amount < 0).reduce((s, t) => s + Math.abs(t.amount), 0)
           const label = new Date(month + '-01').toLocaleString('en-US', { month: 'long', year: 'numeric' })
@@ -345,7 +359,19 @@ export function StatementsPage() {
               </div>
             </div>
           )
-        })}
+        })
+      })()}
+        {filtered.length > PAGE_SIZE && (
+          <div className="flex items-center justify-between px-2 py-3 text-sm">
+            <span className="text-gray-500">Page {page} of {Math.ceil(filtered.length / PAGE_SIZE)}</span>
+            <div className="flex gap-2">
+              <button disabled={page <= 1} onClick={() => setPage(p => Math.max(1, p - 1))}
+                className="px-3 py-1.5 rounded border border-gray-200 disabled:opacity-40 text-sm">Prev</button>
+              <button disabled={page >= Math.ceil(filtered.length / PAGE_SIZE)} onClick={() => setPage(p => p + 1)}
+                className="px-3 py-1.5 rounded border border-gray-200 disabled:opacity-40 text-sm">Next</button>
+            </div>
+          </div>
+        )}
       </div>
 
       {selected && (
