@@ -28,6 +28,14 @@ def _validate_username(value: str) -> str:
     return u
 
 
+def _mask_email(email: str) -> str:
+    """Mask email as first 3 chars + ***** + @domain (e.g. joh*****@domain.com)."""
+    local, _, domain = (email or "").partition("@")
+    if not domain:
+        return email or ""
+    prefix = local[:3]
+   return f"{prefix}*****@{domain}"
+
 async def _user_by_username(db: AsyncSession, username: str):
     u = _normalize_username(username)
     result = await db.execute(select(User).where(User.username == u))
