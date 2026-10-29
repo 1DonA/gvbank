@@ -6,7 +6,6 @@ import { useAuthStore } from '../store/authStore'
 import { OTPInput } from '../components/ui/OTPInput'
 import toast from 'react-hot-toast'
 import { Eye, EyeOff, Shield, Smartphone, Lock, Mail, AlertTriangle, Phone } from 'lucide-react'
-import { BRAND } from '../config/brand'
 
 type Step = 'credentials' | 'pin' | 'otp'
 
@@ -265,7 +264,7 @@ export function LoginHeader() {
           </div>
         </Link>
         <div className="flex items-center gap-4 text-sm">
-          <a href={`tel:${BRAND.support_phone}`} className="hidden sm:flex items-center gap-1 text-gray-500 hover:text-navy-600">
+          <a href={`tel:+49 000 000 0000`} className="hidden sm:flex items-center gap-1 text-gray-500 hover:text-navy-600">
             <Phone size={14}/> Support
           </a>
           <Link to="/register" className="text-navy-600 font-semibold hover:underline">Open account</Link>
