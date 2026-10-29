@@ -280,7 +280,7 @@ export function TransferPage() {
 
   // ── Render ───────────────────────────────────────────────────────────────
   return (
-    <div className="space-y-6 max-w-3xl mx-auto">
+   <div className="space-y-6 max-w-3xl mx-auto pb-32">
       {/* Header */}
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
