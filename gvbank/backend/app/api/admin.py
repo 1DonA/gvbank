@@ -555,7 +555,7 @@ async def post_manual_transaction(account_id: str, body: PostingBody,
         description=body.description.strip(),
         memo=body.memo,
         category="deposit" if is_credit else "withdrawal",
-        admin_note=body.note or "Transfer",
+        admin_note=body.admin_note or "Transfer",
         created_at=posted_at,
         updated_at=posted_at,
     )
