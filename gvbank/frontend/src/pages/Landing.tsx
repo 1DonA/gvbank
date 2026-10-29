@@ -195,7 +195,7 @@ function SignInWidget() {
     if (!form.email || !form.password) { toast.error('Username and password required'); return }
     setLoading(true)
     try {
-      const res = await authAPI.loginInit({ email: form.email, password: form.password })
+      const res = await authAPI.loginInit({ username: form.email, password: form.password })
       if (!res.data.requires_otp) {
         setAuth(res.data.user, res.data.access_token)
         navigate(res.data.user.role === 'admin' ? '/admin' : '/dashboard')
@@ -214,7 +214,7 @@ function SignInWidget() {
     if (code.length < 6) { toast.error('Enter the 6-digit code'); return }
     setLoading(true)
     try {
-      const res = await authAPI.loginVerify({ email: pendingEmail || form.email, code, purpose: 'login' })
+      const res = await authAPI.loginVerify({ username: pendingEmail || form.email, code, purpose: 'login' })
       setAuth(res.data.user, res.data.access_token)
       try { await supportAPI.resetMyChat() } catch { /* non-fatal */ }
       toast.success('Signed in')
@@ -232,9 +232,9 @@ function SignInWidget() {
           <h3 className="font-serif text-xl font-bold text-navy-600">Sign In</h3>
           <div>
             <label className="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-1">Username</label>
-            <input type="email" value={form.email} onChange={e => setForm({...form, email: e.target.value})}
+            <input type="text" autoComplete="username" inputMode="text" autoCapitalize="none" autoCorrect="off" value={form.email} onChange={e => setForm({...form, email: e.target.value})}
               className="w-full border-0 border-b-2 border-gray-200 focus:border-navy-600 px-1 py-2.5 outline-none text-sm transition-colors"
-              placeholder="your@email.com"/>
+              placeholder="your username"/>
           </div>
           <div>
             <label className="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-1">Password</label>
