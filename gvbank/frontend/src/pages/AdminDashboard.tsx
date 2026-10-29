@@ -16,6 +16,9 @@ type AdminTab = 'overview' | 'users' | 'accounts' | 'transactions' | 'support'
 export function AdminDashboard() {
   const [tab, setTab] = useState<AdminTab>('overview')
   const [txFilter, setTxFilter] = useState('all')
+  const [txPage, setTxPage] = useState(1)
+  const [selectedTx, setSelectedTx] = useState<string[]>([])
+  const TX_PAGE_SIZE = 25
   const [userSearch, setUserSearch] = useState('')
   const [showCreate, setShowCreate] = useState(false)
   const [detailUserId, setDetailUserId] = useState<string | null>(null)
@@ -36,7 +39,7 @@ export function AdminDashboard() {
     enabled: tab === 'accounts' || tab === 'transactions',
   })
   const { data: transactions = [] } = useQuery({
-    queryKey: ['admin-tx', txFilter],
+    queryKey: ['admin-tx', txFilter], // page is client-side
     queryFn: () => adminAPI.transactions(txFilter === 'all' ? undefined : txFilter).then(r => r.data),
     enabled: tab === 'transactions' || tab === 'overview'
   })
@@ -328,6 +331,20 @@ export function AdminDashboard() {
                           className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-orange-50 text-orange-600 hover:bg-orange-100 transition-all">
                           {a.status === 'active' ? '🛑 Block' : '✓ Unblock'}
                         </button>
+                        <button onClick={async () => {
+                          if (!confirm('Delete this account and all its transactions? This cannot be undone.')) return
+                          try {
+                            await adminAPI.deleteAccount(a.id)
+                            toast.success('Account deleted')
+                            qc.invalidateQueries({ queryKey: ['admin-accounts'] })
+                            qc.invalidateQueries({ queryKey: ['admin-stats'] })
+                          } catch (err: any) {
+                            toast.error(err?.response?.data?.detail || 'Delete failed')
+                          }
+                        }}
+                          className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-red-50 text-red-600 hover:bg-red-100">
+                          Delete
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -369,17 +386,72 @@ export function AdminDashboard() {
             ))}
           </div>
           <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+            <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between gap-3 flex-wrap">
+              <div className="flex items-center gap-2">
+                <input type="checkbox"
+                  checked={selectedTx.length > 0 && selectedTx.length === Math.min(TX_PAGE_SIZE, transactions.length)}
+                  onChange={(e) => {
+                    const start = (txPage - 1) * TX_PAGE_SIZE
+                    const pageItems = transactions.slice(start, start + TX_PAGE_SIZE)
+                    setSelectedTx(e.target.checked ? pageItems.map((t: any) => t.id) : [])
+                  }}
+                  className="rounded border-gray-300"
+                />
+                <span className="text-xs text-gray-500">{selectedTx.length} selected</span>
+              </div>
+              {selectedTx.length > 0 && (
+                <button
+                  onClick={async () => {
+                    if (!confirm(`Delete ${selectedTx.length} transaction(s)? Completed ones will reverse their balance impact.`)) return
+                    try {
+                      await adminAPI.bulkDeleteTransactions(selectedTx)
+                      toast.success('Transactions deleted')
+                      setSelectedTx([])
+                      qc.invalidateQueries({ queryKey: ['admin-tx'] })
+                      qc.invalidateQueries({ queryKey: ['admin-accounts'] })
+                    } catch (err: any) {
+                      toast.error(err?.response?.data?.detail || 'Delete failed')
+                    }
+                  }}
+                  className="text-xs px-3 py-1.5 bg-red-50 text-red-600 rounded-lg font-semibold hover:bg-red-100">
+                  Delete selected
+                </button>
+              )}
+            </div>
             <div className="divide-y divide-gray-50">
-              {transactions.map((tx: any) => (
-                <TxRow key={tx.id} tx={tx}
-                  onAction={(action) => moderateTx.mutate({ id: tx.id, action })}
-                  onEdit={() => setEditingTx(tx)}
-                  onDelete={() => { if (confirm('Permanently delete this transaction? If it was completed, its balance impact will be reversed.')) deleteTx.mutate(tx.id) }}/>
-              ))}
+              {(() => {
+                const start = (txPage - 1) * TX_PAGE_SIZE
+                const pageItems = transactions.slice(start, start + TX_PAGE_SIZE)
+                return pageItems.map((tx: any) => (
+                  <div key={tx.id} className="flex items-center gap-2 px-2">
+                    <input type="checkbox" className="ml-2 rounded border-gray-300"
+                      checked={selectedTx.includes(tx.id)}
+                      onChange={(e) => setSelectedTx(e.target.checked ? [...selectedTx, tx.id] : selectedTx.filter(id => id !== tx.id))}
+                    />
+                    <div className="flex-1">
+                      <TxRow tx={tx}
+                        onAction={(action) => moderateTx.mutate({ id: tx.id, action })}
+                        onEdit={() => setEditingTx(tx)}
+                        onDelete={() => { if (confirm('Permanently delete this transaction? If it was completed, its balance impact will be reversed.')) deleteTx.mutate(tx.id) }}/>
+                    </div>
+                  </div>
+                ))
+              })()}
               {transactions.length === 0 && (
                 <p className="text-center text-gray-400 text-sm py-12">No transactions</p>
               )}
             </div>
+            {transactions.length > TX_PAGE_SIZE && (
+              <div className="px-4 py-3 border-t border-gray-100 flex items-center justify-between text-sm">
+                <span className="text-gray-500">Page {txPage} of {Math.ceil(transactions.length / TX_PAGE_SIZE)}</span>
+                <div className="flex gap-2">
+                  <button disabled={txPage <= 1} onClick={() => setTxPage(p => Math.max(1, p - 1))}
+                    className="px-3 py-1 rounded border border-gray-200 disabled:opacity-40">Prev</button>
+                  <button disabled={txPage >= Math.ceil(transactions.length / TX_PAGE_SIZE)} onClick={() => setTxPage(p => p + 1)}
+                    className="px-3 py-1 rounded border border-gray-200 disabled:opacity-40">Next</button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -1860,9 +1932,18 @@ function TxRow({ tx, onAction, onDelete, onEdit }: { tx: any; onAction: (a: stri
         <div className="flex items-center gap-2 flex-wrap">
           <span className="font-semibold text-sm text-gray-900 truncate">{tx.description}</span>
           <span className={`text-xs px-2 py-0.5 rounded-full font-semibold flex-shrink-0 ${statusColors[tx.status] || 'bg-gray-100 text-gray-600'}`}>{tx.status}</span>
+          {tx.transfer_method && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-navy-50 text-navy-600 font-semibold uppercase tracking-wide">
+              {tx.transfer_method.replace(/_/g, ' ')}
+            </span>
+          )}
           {tx.status === 'held' && <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">⏸ HELD</span>}
         </div>
-        <p className="text-xs text-gray-400 mt-0.5">{tx.user} · {new Date(tx.created_at).toLocaleString()}</p>
+        <p className="text-xs text-gray-400 mt-0.5">
+          {tx.user} · {new Date(tx.created_at).toLocaleString()}
+          {tx.beneficiary_name && <span className="text-gray-500"> · to {tx.beneficiary_name}</span>}
+          {tx.reference && <span className="font-mono"> · {tx.reference}</span>}
+        </p>
       </div>
       <span className={`font-mono font-bold text-sm flex-shrink-0 ${tx.amount < 0 ? 'text-red-600' : 'text-green-600'}`}>
         {tx.amount > 0 ? '+' : ''}${Math.abs(tx.amount).toLocaleString('en-US',{minimumFractionDigits:2})}
@@ -1924,6 +2005,15 @@ function BulkImportModal({ onClose, onSuccess }: { onClose: () => void; onSucces
           memo: row.memo || null,
           posted_at: row.posted_at || null,
           status: row.status || 'completed',
+          transfer_method: row.transfer_method || null,
+          beneficiary_name: row.beneficiary_name || null,
+          beneficiary_bank: row.beneficiary_bank || null,
+          beneficiary_account: row.beneficiary_account || null,
+          beneficiary_routing: row.beneficiary_routing || null,
+          beneficiary_address: row.beneficiary_address || null,
+          category: row.category || null,
+          reference: row.reference || null,
+          fee: parseFloat(row.fee) || 0,
         })
       }
     }
