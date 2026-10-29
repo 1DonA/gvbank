@@ -34,7 +34,8 @@ def _mask_email(email: str) -> str:
     if not domain:
         return email or ""
     prefix = local[:3]
-   return f"{prefix}*****@{domain}"
+    return f"{prefix}*****@{domain}"
+
 
 async def _user_by_username(db: AsyncSession, username: str):
     u = _normalize_username(username)
@@ -54,8 +55,10 @@ async def _user_by_login_id(db: AsyncSession, login_id: str):
     result = await db.execute(select(User).where(User.email == raw.lower()))
     return result.scalars().first()
 
+
 # ── Trusted-device helpers ────────────────────────────────────────────────
 DEVICE_TRUST_DAYS = 90
+
 
 async def _is_device_trusted(db: AsyncSession, user_id: str, device_token: Optional[str]) -> bool:
     """Return True if the caller's device_token matches a non-expired
@@ -330,30 +333,6 @@ async def login_initiate(data: LoginRequest, request: Request, db: AsyncSession 
         "user_id": user.id,
         "masked_email": masked_email,
         "message": f"Verification code sent to {masked_email} and {masked_phone}",
-    }
-    # No PIN set. Trusted device OR admin-created first login → issue token.
-    if trusted or first_login_bypass:
-        if first_login_bypass:
-            user.skip_first_otp = False    # one-shot: burn it now
-        await db.flush()
-        token = create_access_token({"sub": user.id, "role": user.role.value})
-        # Also mint a device_token so this browser is trusted for the next 90 days
-        device_token = await _issue_device_token(db, user, "")
-        return {
-            "requires_otp": False, "requires_pin": False,
-            "access_token": token, "token_type": "bearer",
-            "device_token": device_token,
-            "user": {"id": user.id, "name": f"{user.first_name} {user.last_name}",
-                     "email": user.email, "role": user.role.value, "phone": user.phone},
-        }
-
-    await dispatch_otp(db, user, "login")
-    local, _, domain = user.email.partition("@")
-    masked_email = (local[:2] if len(local) >= 2 else local) + "***@" + domain
-    masked_phone = ("***" + user.phone[-4:]) if user.phone else "N/A"
-    return {
-        "requires_otp": True, "requires_pin": False, "user_id": user.id,
-        "message": f"New device detected. Verification code sent to {masked_email} and {masked_phone}",
     }
 
 
