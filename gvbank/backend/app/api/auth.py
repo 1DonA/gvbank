@@ -323,7 +323,6 @@ async def login_initiate(data: LoginRequest, request: Request, db: AsyncSession 
         "masked_email": masked_email,
         "message": f"Verification code sent to {masked_email} and {masked_phone}",
     }
-
     # No PIN set. Trusted device OR admin-created first login → issue token.
     if trusted or first_login_bypass:
         if first_login_bypass:
