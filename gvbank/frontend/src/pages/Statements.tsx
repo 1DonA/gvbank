@@ -362,13 +362,20 @@ export function StatementsPage() {
         })
       })()}
         {filtered.length > PAGE_SIZE && (
-          <div className="flex items-center justify-between px-2 py-3 text-sm">
-            <span className="text-gray-500">Page {page} of {Math.ceil(filtered.length / PAGE_SIZE)}</span>
-            <div className="flex gap-2">
+          <div className="bg-white rounded-2xl border border-gray-100 px-5 py-4 flex items-center justify-between">
+            <span className="text-sm text-gray-600">
+              Showing {(page-1)*PAGE_SIZE + 1}–{Math.min(page*PAGE_SIZE, filtered.length)} of {filtered.length}
+            </span>
+            <div className="flex items-center gap-2">
               <button disabled={page <= 1} onClick={() => setPage(p => Math.max(1, p - 1))}
-                className="px-3 py-1.5 rounded border border-gray-200 disabled:opacity-40 text-sm">Prev</button>
+                className="px-4 py-2 rounded-lg border border-gray-200 text-sm font-semibold disabled:opacity-40 hover:bg-gray-50">
+                ← Prev
+              </button>
+              <span className="text-sm text-gray-500 px-2">Page {page} / {Math.ceil(filtered.length / PAGE_SIZE)}</span>
               <button disabled={page >= Math.ceil(filtered.length / PAGE_SIZE)} onClick={() => setPage(p => p + 1)}
-                className="px-3 py-1.5 rounded border border-gray-200 disabled:opacity-40 text-sm">Next</button>
+                className="px-4 py-2 rounded-lg border border-gray-200 text-sm font-semibold disabled:opacity-40 hover:bg-gray-50">
+                Next →
+              </button>
             </div>
           </div>
         )}
