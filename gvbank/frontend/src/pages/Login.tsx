@@ -26,11 +26,16 @@ export function LoginPage() {
 
   // Finalize sign-in — used both by direct (trusted device) and OTP paths.
   const completeLogin = async (user: any, access_token: string, device_token?: string) => {
-    if (device_token) setDeviceToken(device_token)
-    setAuth(user, access_token)
-    try { await supportAPI.resetMyChat() } catch { /* non-fatal */ }
-    toast.success('Welcome back')
-    navigate(user.role === 'admin' ? '/admin' : '/dashboard')
+    try {
+      if (device_token) setDeviceToken(device_token)
+      setAuth(user, access_token)
+      try { await supportAPI.resetMyChat() } catch { /* non-fatal */ }
+      toast.success('Welcome back')
+      navigate(user?.role === 'admin' ? '/admin' : '/dashboard')
+    } catch (err) {
+      console.error('Login finalize error', err)
+      toast.error('Signed in, but could not open the dashboard. Please refresh.')
+    }
   }
 
   const onCredentials = async (data: { username: string; password: string }) => {
@@ -129,7 +134,8 @@ export function LoginPage() {
                   <form onSubmit={handleSubmit(onCredentials)} className="space-y-5">
                     <div>
                       <label className="label">Username</label>
-                      <input type="text" autoFocus autoComplete="username"
+                      <input type="text" autoFocus autoComplete="username" inputMode="text"
+                        name="username"
                         {...register('username', { required: 'Username is required', minLength: { value: 3, message: 'At least 3 characters' } })}
                         className="input" placeholder="your username"/>
                       {errors.username && <p className="text-red-500 text-xs mt-1">{errors.username.message}</p>}
