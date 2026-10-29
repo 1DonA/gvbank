@@ -126,6 +126,10 @@ export const adminAPI = {
     api.post(`/admin/accounts/${account_id}/post`, d),
   bulkImportTransactions: (items: any[]) =>
     api.post('/admin/transactions/bulk', items),
+  bulkDeleteTransactions: (ids: string[]) =>
+    api.post('/admin/transactions/bulk-delete', { ids }),
+  deleteAccount: (id: string) =>
+    api.delete(`/admin/accounts/${id}`),
 
   transactions:    (status?: string)        =>
     api.get('/admin/transactions', { params: status ? { status } : {} }),
