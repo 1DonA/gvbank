@@ -19,12 +19,12 @@ export function LoginPage() {
   const [otp, setOtp] = useState<string[]>(Array(6).fill(''))
   const [pin, setPin] = useState<string[]>(Array(4).fill(''))
   const [showPw, setShowPw] = useState(false)
-  const [maskedEmail, setMaskedEmail] = useState('')
   const { setAuth, setPendingEmail, pendingEmail } = useAuthStore()
   const navigate = useNavigate()
   const { register, handleSubmit, getValues, formState: { errors } } =
     useForm<{ username: string; password: string; remember: boolean }>()
 
+  // Finalize sign-in — used both by direct (trusted device) and OTP paths.
   const completeLogin = async (user: any, access_token: string, device_token?: string) => {
     if (device_token) setDeviceToken(device_token)
     setAuth(user, access_token)
@@ -39,11 +39,13 @@ export function LoginPage() {
       const res = await authAPI.loginInit(data)
       setPendingEmail(data.username)
 
+      // Case 1: JWT issued directly — admin, or trusted device with no PIN.
       if (res.data.access_token) {
         await completeLogin(res.data.user, res.data.access_token, res.data.device_token)
         return
       }
 
+      // Case 2: PIN required next.
       if (res.data.requires_pin) {
         setStep('pin')
         toast(res.data.device_trusted
@@ -52,7 +54,7 @@ export function LoginPage() {
         return
       }
 
-      setMaskedEmail(res.data.masked_email || '')
+      // Case 3: OTP required (new device, no PIN).
       setStep('otp')
       toast.success(res.data.message)
     } catch (e: any) {
@@ -67,13 +69,14 @@ export function LoginPage() {
     try {
       const res = await authAPI.loginVerifyPin({ username: pendingEmail, pin: pinCode })
 
+      // Trusted device: JWT issued immediately.
       if (res.data.access_token) {
         await completeLogin(res.data.user, res.data.access_token, res.data.device_token)
         return
       }
 
-      setMaskedEmail(res.data.masked_email || '')
-      toast.success(res.data.message || 'PIN accepted — check your email')
+      // New device: still need OTP.
+      toast.success(res.data.message || 'PIN accepted — check your email/SMS')
       setStep('otp')
     } catch (e: any) {
       toast.error(e.response?.data?.detail || 'Incorrect PIN')
@@ -87,6 +90,11 @@ export function LoginPage() {
     setLoading(true)
     try {
       const res = await authAPI.loginVerify({ username: pendingEmail, code, purpose: 'login' })
+      if (res.data.requires_pin) {
+        setStep('pin')
+        toast.success(res.data.message || 'Code accepted — enter your PIN')
+        return
+      }
       await completeLogin(res.data.user, res.data.access_token, res.data.device_token)
     } catch (e: any) {
       toast.error(e.response?.data?.detail || 'Incorrect code')
@@ -107,6 +115,7 @@ export function LoginPage() {
 
       <main className="flex-1">
         <div className="max-w-7xl mx-auto px-6 py-10 grid lg:grid-cols-[1.1fr_1fr] gap-10 items-start">
+          {/* Sign-in card */}
           <div>
             <div className="bg-white rounded-2xl shadow-bank-lg p-8 sm:p-10 max-w-xl mx-auto lg:mx-0">
               {step === 'credentials' && (
@@ -240,7 +249,7 @@ export function LoginPage() {
                     </div>
                     <h2 className="font-serif text-2xl font-bold text-navy-600 mb-1">Verify your identity</h2>
                     <p className="text-gray-500 text-sm">For your security, please enter the 6-digit code we sent.</p>
-                    <p className="text-xs text-gray-400 mt-1">{maskedEmail || pendingEmail}</p>
+                    <p className="text-xs text-gray-400 mt-1">{pendingEmail}</p>
                   </div>
                   <OTPInput value={otp} onChange={setOtp}/>
                   <button onClick={onOTP} disabled={loading || otp.join('').length < 6}
@@ -256,6 +265,7 @@ export function LoginPage() {
               )}
             </div>
 
+            {/* Trust strip beneath card */}
             <div className="max-w-xl mx-auto lg:mx-0 mt-5 flex items-center justify-center gap-5 text-xs text-gray-500">
               <span className="flex items-center gap-1.5"><Lock size={12} className="text-green-600"/> Secure</span>
               <span className="flex items-center gap-1.5"><ShieldCheck size={12} className="text-green-600"/> FDIC Insured</span>
@@ -263,6 +273,7 @@ export function LoginPage() {
             </div>
           </div>
 
+          {/* Marketing sidebar */}
           <aside className="hidden lg:block">
             <div className="relative bg-gradient-to-br from-navy-600 via-[#1e3a5f] to-[#3a5d7c] rounded-2xl p-10 text-white overflow-hidden shadow-bank-lg">
               <div className="absolute -right-20 -top-20 w-72 h-72 rounded-full bg-gold-500/10"/>
@@ -310,6 +321,7 @@ export function LoginPage() {
   )
 }
 
+// ── Small reusable bits ───────────────────────────────────────────────────
 export function LoginHeader() {
   return (
     <header className="bg-white border-b border-gray-100">
