@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { accountsAPI } from '../services/api'
-import { Search, Download, Filter, ArrowUpRight, ArrowDownLeft, X } from 'lucide-react'
+import { Search, Download, Filter, ArrowUpRight, ArrowDownLeft, X, Building2, Hash, Calendar, FileText, Printer, CreditCard, Globe } from 'lucide-react'
 
 const fmt = (n: number) =>
   '€' + Math.abs(n).toLocaleString('en-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -18,11 +18,11 @@ const methodLabel = (m: string | null | undefined) => {
     international_wire: 'International Wire',
     domestic_wire: 'Domestic Wire',
     wire: 'Wire Transfer',
-    ach: 'ACH',
-    internal: 'Internal',
+    ach: 'ACH Transfer',
+    internal: 'Internal Transfer',
     zelle: 'Zelle',
   }
-  return map[m] || m.replace(/_/g, ' ').replace(/\\b\\w/g, c => c.toUpperCase())
+  return map[m] || m.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
 }
 
 type Tx = {
@@ -41,10 +41,70 @@ type Tx = {
   created_at: string
 }
 
+function buildReceiptPdf(tx: Tx): Blob {
+  const lines: string[] = [
+    'GV UNION BANK',
+    'Member FDIC',
+    '',
+    'TRANSACTION RECEIPT',
+    '',
+    `Amount:         ${tx.amount > 0 ? '+' : '-'}${fmt(tx.amount)}`,
+    `Description:    ${tx.description}`,
+    `Status:         ${tx.status.charAt(0).toUpperCase() + tx.status.slice(1)}`,
+    `Type:           ${tx.type.charAt(0).toUpperCase() + tx.type.slice(1)}`,
+    `Method:         ${methodLabel(tx.transfer_method)}`,
+    `Category:       ${tx.category || '-'}`,
+  ]
+  if (tx.beneficiary_name) lines.push(`Beneficiary:    ${tx.beneficiary_name}`)
+  if (tx.beneficiary_bank) lines.push(`Bank:           ${tx.beneficiary_bank}`)
+  if (tx.fee && tx.fee > 0) lines.push(`Fee:            ${fmt(tx.fee)}`)
+  if (tx.reference) lines.push(`Reference:      ${tx.reference}`)
+  lines.push(`Confirmation:   ${tx.id}`)
+  lines.push(`Posted:         ${fmtDateTime(tx.created_at)}`)
+  if (tx.memo) lines.push(`Memo:           ${tx.memo}`)
+  lines.push('')
+  lines.push('Electronic record. Contact your account officer for questions.')
+  lines.push(`Generated ${new Date().toLocaleString()}`)
+
+  const content = lines.map((l, i) => `BT /F1 11 Tf 50 ${750 - i * 16} Td (${l.replace(/[()\\]/g, '')}) Tj ET`).join('\n')
+  const pdf = `%PDF-1.4
+1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj
+2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj
+3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >> endobj
+4 0 obj << /Length ${content.length} >> stream
+${content}
+endstream endobj
+5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000266 00000 n 
+0000000${(400 + content.length).toString().padStart(3, '0')} 00000 n 
+trailer << /Size 6 /Root 1 0 R >>
+startxref
+${500 + content.length}
+%%EOF`
+  return new Blob([pdf], { type: 'application/pdf' })
+}
+
+function downloadReceipt(tx: Tx) {
+  const blob = buildReceiptPdf(tx)
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `GV-Bank-Receipt-${tx.reference || tx.id.slice(0, 8)}.pdf`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 export function StatementsPage() {
   const [accountId, setAccountId] = useState<string>('all')
   const [type, setType] = useState<string>('all')
   const [status, setStatus] = useState<string>('all')
+  const [method, setMethod] = useState<string>('all')
   const [search, setSearch] = useState('')
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
@@ -60,32 +120,46 @@ export function StatementsPage() {
     return allTx.filter(t => {
       if (type !== 'all'   && t.type   !== type)   return false
       if (status !== 'all' && t.status !== status) return false
+      if (method !== 'all' && t.transfer_method !== method) return false
       if (search) {
         const q = search.toLowerCase()
-        const hay = `${t.description} ${t.memo || ''} ${t.beneficiary_name || ''} ${t.reference || ''}`.toLowerCase()
+        const hay = `${t.description} ${t.memo || ''} ${t.beneficiary_name || ''} ${t.beneficiary_bank || ''} ${t.reference || ''} ${t.category || ''}`.toLowerCase()
         if (!hay.includes(q)) return false
       }
       if (from && t.created_at < from) return false
       if (to   && t.created_at > to + 'T23:59:59') return false
       return true
     })
-  }, [allTx, type, status, search, from, to, accountId])
+  }, [allTx, type, status, method, search, from, to])
 
   const totals = useMemo(() => {
-    let credits = 0, debits = 0
+    let credits = 0, debits = 0, fees = 0
     for (const t of filtered) {
       if (t.amount > 0) credits += t.amount
       else              debits  += Math.abs(t.amount)
+      if (t.fee) fees += t.fee
     }
-    return { credits, debits, net: credits - debits }
+    return { credits, debits, net: credits - debits, fees, count: filtered.length }
+  }, [filtered])
+
+  // Group by month
+  const grouped = useMemo(() => {
+    const map = new Map<string, Tx[]>()
+    for (const t of filtered) {
+      const key = t.created_at.slice(0, 7)
+      if (!map.has(key)) map.set(key, [])
+      map.get(key)!.push(t)
+    }
+    return Array.from(map.entries()).sort((a, b) => b[0].localeCompare(a[0]))
   }, [filtered])
 
   const exportCSV = () => {
-    const headers = ['Date', 'Description', 'Beneficiary', 'Method', 'Category', 'Status', 'Reference', 'Fee', 'Amount']
+    const headers = ['Date', 'Description', 'Beneficiary', 'Bank', 'Method', 'Category', 'Status', 'Reference', 'Fee', 'Amount']
     const rows = filtered.map(t => [
       fmtDateTime(t.created_at),
       `"${(t.description || '').replace(/"/g, '""')}"`,
       `"${(t.beneficiary_name || '').replace(/"/g, '""')}"`,
+      `"${(t.beneficiary_bank || '').replace(/"/g, '""')}"`,
       t.transfer_method || '',
       t.category || '',
       t.status,
@@ -93,7 +167,7 @@ export function StatementsPage() {
       (t.fee ?? 0).toFixed(2),
       t.amount.toFixed(2),
     ])
-    const csv = [headers, ...rows].map(r => r.join(',')).join('\\n')
+    const csv = [headers, ...rows].map(r => r.join(',')).join('\n')
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -104,17 +178,17 @@ export function StatementsPage() {
   }
 
   const clearFilters = () => {
-    setAccountId('all'); setType('all'); setStatus('all'); setSearch(''); setFrom(''); setTo('')
+    setAccountId('all'); setType('all'); setStatus('all'); setMethod('all'); setSearch(''); setFrom(''); setTo('')
   }
 
-  const hasFilters = accountId !== 'all' || type !== 'all' || status !== 'all' || search || from || to
+  const hasFilters = accountId !== 'all' || type !== 'all' || status !== 'all' || method !== 'all' || search || from || to
 
   return (
     <div className="space-y-6">
       <div className="flex items-end justify-between gap-3 flex-wrap">
         <div>
           <h2 className="font-serif text-2xl font-bold text-gray-900">Statements & History</h2>
-          <p className="text-sm text-gray-500">Search, filter and export your transaction history.</p>
+          <p className="text-sm text-gray-500">Full transaction history with search, filters, and downloadable receipts.</p>
         </div>
         <button onClick={exportCSV} disabled={!filtered.length}
                 className="flex items-center gap-2 px-4 py-2.5 bg-navy-600 text-white rounded-xl text-sm font-semibold hover:bg-[#1e3a5f] transition-all disabled:opacity-50">
@@ -122,8 +196,8 @@ export function StatementsPage() {
         </button>
       </div>
 
-      {/* Summary */}
-      <div className="grid grid-cols-3 gap-3">
+      {/* Summary cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div className="bg-white rounded-2xl border border-gray-100 p-4">
           <p className="text-xs uppercase tracking-widest text-gray-400">Credits</p>
           <p className="font-serif text-xl font-bold text-green-600 mt-1">+{fmt(totals.credits)}</p>
@@ -135,15 +209,19 @@ export function StatementsPage() {
           <p className="text-xs text-gray-400 mt-1">Money out</p>
         </div>
         <div className="bg-white rounded-2xl border border-gray-100 p-4">
+          <p className="text-xs uppercase tracking-widest text-gray-400">Fees</p>
+          <p className="font-serif text-xl font-bold text-gray-900 mt-1">{fmt(totals.fees)}</p>
+          <p className="text-xs text-gray-400 mt-1">Total fees</p>
+        </div>
+        <div className="bg-white rounded-2xl border border-gray-100 p-4">
           <p className="text-xs uppercase tracking-widest text-gray-400">Net</p>
           <p className={`font-serif text-xl font-bold mt-1 ${totals.net >= 0 ? 'text-green-600' : 'text-red-600'}`}>
             {totals.net >= 0 ? '+' : '−'}{fmt(totals.net)}
           </p>
-          <p className="text-xs text-gray-400 mt-1">{filtered.length} transactions</p>
+          <p className="text-xs text-gray-400 mt-1">{totals.count} transactions</p>
         </div>
       </div>
 
-      {/* Monthly trend bar chart */}
       <MonthlyTrend transactions={filtered}/>
 
       {/* Filters */}
@@ -152,16 +230,16 @@ export function StatementsPage() {
           <Filter size={14}/> Filters
           {hasFilters && (
             <button onClick={clearFilters} className="ml-auto text-xs text-navy-600 font-semibold hover:underline flex items-center gap-1">
-              <X size={12}/> Clear
+              <X size={12}/> Clear all
             </button>
           )}
         </div>
         <div className="relative">
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"/>
-          <input className="input pl-10" placeholder="Search description, memo, beneficiary or reference…"
+          <input className="input pl-10" placeholder="Search description, memo, beneficiary, bank or reference…"
                  value={search} onChange={e => setSearch(e.target.value)}/>
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
           <div>
             <label className="text-xs font-bold text-gray-500 uppercase tracking-widest">Account</label>
             <select className="input mt-1" value={accountId} onChange={e => setAccountId(e.target.value)}>
@@ -179,6 +257,17 @@ export function StatementsPage() {
               <option value="wire">Wire</option>
               <option value="credit">Credit</option>
               <option value="debit">Debit</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-xs font-bold text-gray-500 uppercase tracking-widest">Method</label>
+            <select className="input mt-1" value={method} onChange={e => setMethod(e.target.value)}>
+              <option value="all">All methods</option>
+              <option value="international_wire">International Wire</option>
+              <option value="domestic_wire">Domestic Wire</option>
+              <option value="ach">ACH</option>
+              <option value="wire">Wire</option>
+              <option value="internal">Internal</option>
             </select>
           </div>
           <div>
@@ -222,43 +311,102 @@ export function StatementsPage() {
         ))}
       </div>
 
-      {/* List */}
-      <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
-        <div className="divide-y divide-gray-50">
-          {isLoading && <p className="text-center text-gray-400 text-sm py-10">Loading…</p>}
-          {!isLoading && filtered.length === 0 && (
-            <p className="text-center text-gray-400 text-sm py-12">No transactions match your filters</p>
-          )}
-          {filtered.map(tx => <TransactionRow key={tx.id} tx={tx} onSelect={() => setSelected(tx)}/>)}
-        </div>
+      {/* Grouped list */}
+      <div className="space-y-4">
+        {isLoading && <p className="text-center text-gray-400 text-sm py-10">Loading…</p>}
+        {!isLoading && filtered.length === 0 && (
+          <div className="bg-white rounded-2xl border border-gray-100 p-12 text-center">
+            <p className="text-gray-400 text-sm">No transactions match your filters</p>
+          </div>
+        )}
+        {grouped.map(([month, txs]) => {
+          const monthCredits = txs.filter(t => t.amount > 0).reduce((s, t) => s + t.amount, 0)
+          const monthDebits = txs.filter(t => t.amount < 0).reduce((s, t) => s + Math.abs(t.amount), 0)
+          const label = new Date(month + '-01').toLocaleString('en-US', { month: 'long', year: 'numeric' })
+          return (
+            <div key={month} className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+              <div className="px-5 py-3 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
+                <h3 className="font-semibold text-gray-900">{label}</h3>
+                <div className="text-xs text-gray-500 flex gap-3">
+                  <span className="text-green-600">+{fmt(monthCredits)}</span>
+                  <span className="text-red-600">−{fmt(monthDebits)}</span>
+                  <span>{txs.length} txns</span>
+                </div>
+              </div>
+              <div className="divide-y divide-gray-50">
+                {txs.map(tx => <TransactionRow key={tx.id} tx={tx} onSelect={() => setSelected(tx)}/>)}
+              </div>
+            </div>
+          )
+        })}
       </div>
 
       {/* Detail drawer */}
       {selected && (
         <div className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center p-0 sm:p-4" onClick={() => setSelected(null)}>
-          <div className="bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white">
+          <div className="bg-white w-full sm:max-w-lg sm:rounded-2xl rounded-t-2xl max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white z-10">
               <h3 className="font-serif text-lg font-bold text-gray-900">Transaction Detail</h3>
               <button onClick={() => setSelected(null)} className="text-gray-400 hover:text-gray-700"><X size={18}/></button>
             </div>
-            <div className="px-6 py-4">
-              <p className={`font-serif text-3xl font-bold ${selected.amount > 0 ? 'text-green-600' : 'text-gray-900'}`}>
+
+            {/* Amount */}
+            <div className="px-6 py-6 border-b border-gray-100 text-center">
+              <p className={`font-serif text-4xl font-bold ${selected.amount > 0 ? 'text-green-600' : 'text-gray-900'}`}>
                 {selected.amount > 0 ? '+' : '−'}{fmt(selected.amount)}
               </p>
-              <p className="text-sm text-gray-500 mt-1">{selected.description}</p>
+              <p className="text-sm text-gray-600 mt-2">{selected.description}</p>
+              {selected.reference && (
+                <p className="text-xs text-gray-400 font-mono mt-2">Ref {selected.reference}</p>
+              )}
             </div>
-            <div className="px-6 pb-4 divide-y divide-gray-100 text-sm">
-              <Row label="Status" value={selected.status.charAt(0).toUpperCase() + selected.status.slice(1)}/>
-              <Row label="Type" value={selected.type.charAt(0).toUpperCase() + selected.type.slice(1)}/>
-              <Row label="Method" value={methodLabel(selected.transfer_method)}/>
-              <Row label="Category" value={selected.category ? selected.category.replace(/_/g, ' ').replace(/\\b\\w/g, c => c.toUpperCase()) : '—'}/>
-              {selected.beneficiary_name && <Row label="Beneficiary" value={selected.beneficiary_name}/>}
-              {selected.beneficiary_bank && <Row label="Bank" value={selected.beneficiary_bank}/>}
-              {selected.fee != null && selected.fee > 0 && <Row label="Fee" value={fmt(selected.fee)} mono/>}
-              {selected.reference && <Row label="Reference" value={selected.reference} mono/>}
-              <Row label="Confirmation ID" value={selected.id} mono small/>
-              <Row label="Date" value={fmtDateTime(selected.created_at)}/>
-              {selected.memo && <Row label="Memo" value={selected.memo}/>}
+
+            {/* Sections */}
+            <div className="px-6 py-4 space-y-5">
+              <Section title="Transaction">
+                <DetailRow icon={<Calendar size={14}/>} label="Posted" value={fmtDateTime(selected.created_at)}/>
+                <DetailRow icon={<FileText size={14}/>} label="Status" value={selected.status.charAt(0).toUpperCase() + selected.status.slice(1)}/>
+                <DetailRow label="Type" value={selected.type.charAt(0).toUpperCase() + selected.type.slice(1)}/>
+                <DetailRow icon={<CreditCard size={14}/>} label="Method" value={methodLabel(selected.transfer_method)}/>
+                <DetailRow label="Category" value={selected.category ? selected.category.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : '—'}/>
+              </Section>
+
+              {(selected.beneficiary_name || selected.beneficiary_bank) && (
+                <Section title="Counterparty">
+                  {selected.beneficiary_name && (
+                    <DetailRow icon={<Building2 size={14}/>} label="Name" value={selected.beneficiary_name}/>
+                  )}
+                  {selected.beneficiary_bank && (
+                    <DetailRow icon={<Globe size={14}/>} label="Bank" value={selected.beneficiary_bank}/>
+                  )}
+                </Section>
+              )}
+
+              <Section title="Amounts">
+                <DetailRow label="Amount" value={`${selected.amount > 0 ? '+' : '−'}${fmt(selected.amount)}`}/>
+                {selected.fee != null && selected.fee > 0 && (
+                  <DetailRow label="Fee" value={fmt(selected.fee)} mono/>
+                )}
+              </Section>
+
+              <Section title="References">
+                {selected.reference && (
+                  <DetailRow icon={<Hash size={14}/>} label="Reference" value={selected.reference} mono/>
+                )}
+                <DetailRow label="Confirmation" value={selected.id} mono small/>
+                {selected.memo && <DetailRow label="Memo" value={selected.memo}/>}
+              </Section>
+            </div>
+
+            <div className="px-6 py-4 border-t border-gray-100 flex gap-2 sticky bottom-0 bg-white">
+              <button onClick={() => downloadReceipt(selected)}
+                className="flex-1 flex items-center justify-center gap-2 py-3 bg-navy-600 text-white rounded-xl text-sm font-semibold hover:bg-[#1e3a5f]">
+                <Download size={14}/> Download PDF
+              </button>
+              <button onClick={() => window.print()}
+                className="flex-1 flex items-center justify-center gap-2 py-3 border border-gray-200 rounded-xl text-sm font-semibold text-gray-700 hover:bg-gray-50">
+                <Printer size={14}/> Print
+              </button>
             </div>
           </div>
         </div>
@@ -267,7 +415,30 @@ export function StatementsPage() {
   )
 }
 
-// ── Enhanced transaction row with prominent status display ────────────────
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">{title}</p>
+      <div className="divide-y divide-gray-100 border border-gray-100 rounded-xl overflow-hidden">
+        {children}
+      </div>
+    </div>
+  )
+}
+
+function DetailRow({ label, value, mono = false, small = false, icon }: any) {
+  return (
+    <div className="flex items-start justify-between py-3 px-3 gap-4 bg-white">
+      <span className="text-gray-500 flex items-center gap-1.5 flex-shrink-0 text-sm">
+        {icon}{label}
+      </span>
+      <span className={`font-semibold text-gray-900 text-right break-all text-sm ${mono ? 'font-mono text-xs' : ''} ${small ? 'text-xs' : ''}`}>
+        {value}
+      </span>
+    </div>
+  )
+}
+
 const STATUS_STYLES: Record<string, { border: string; badge: string; label: string; icon?: string }> = {
   completed: { border: 'border-l-green-500',  badge: 'bg-green-50 text-green-700 border border-green-100',  label: 'Completed' },
   pending:   { border: 'border-l-amber-500',  badge: 'bg-amber-50 text-amber-700 border border-amber-100',  label: 'Pending', icon: '⏳' },
@@ -282,13 +453,12 @@ function TransactionRow({ tx, onSelect }: { tx: Tx; onSelect: () => void }) {
   const isPending = tx.status === 'pending' || tx.status === 'held'
   return (
     <button onClick={onSelect}
-      className={`w-full text-left flex items-center gap-3 pl-3 pr-5 py-3.5 border-l-4 hover:bg-gray-50 transition-colors ${style.border}
+      className={`w-full text-left flex items-center gap-3 pl-3 pr-5 py-4 border-l-4 hover:bg-gray-50 transition-colors ${style.border}
         ${tx.status === 'blocked' ? 'bg-red-50/30' : ''}`}>
-      <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0
+      <div className={`w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0
         ${tx.amount > 0 ? 'bg-green-50 text-green-600' : 'bg-gray-100 text-navy-600'}`}>
-        {tx.amount > 0 ? <ArrowDownLeft size={16}/> : <ArrowUpRight size={16}/>}
+        {tx.amount > 0 ? <ArrowDownLeft size={18}/> : <ArrowUpRight size={18}/>}
       </div>
-
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
           <p className={`text-sm font-semibold truncate ${
@@ -307,12 +477,13 @@ function TransactionRow({ tx, onSelect }: { tx: Tx; onSelect: () => void }) {
           )}
         </div>
         <p className="text-xs text-gray-400 mt-1">
-          {fmtDate(tx.created_at)}{tx.reference ? ` · ${tx.reference}` : ''}
+          {fmtDate(tx.created_at)}
           {tx.beneficiary_name ? ` · ${tx.beneficiary_name}` : ''}
+          {tx.beneficiary_bank ? ` · ${tx.beneficiary_bank}` : ''}
+          {tx.reference ? ` · ${tx.reference}` : ''}
           {isPending && ' · funds not yet moved'}
         </p>
       </div>
-
       <div className="text-right flex-shrink-0">
         <p className={`text-sm font-bold font-mono ${
           tx.status === 'blocked' || tx.status === 'rejected' || tx.status === 'failed'
@@ -321,21 +492,14 @@ function TransactionRow({ tx, onSelect }: { tx: Tx; onSelect: () => void }) {
         }`}>
           {tx.amount > 0 ? '+' : '−'}{fmt(tx.amount)}
         </p>
+        {tx.fee && tx.fee > 0 && (
+          <p className="text-[10px] text-gray-400 mt-0.5">fee {fmt(tx.fee)}</p>
+        )}
       </div>
     </button>
   )
 }
 
-function Row({ label, value, mono = false, small = false }: any) {
-  return (
-    <div className="flex items-start justify-between py-2.5 gap-4">
-      <span className="text-gray-500">{label}</span>
-      <span className={`font-semibold text-gray-900 text-right break-all ${mono ? 'font-mono' : ''} ${small ? 'text-xs' : ''}`}>{value}</span>
-    </div>
-  )
-}
-
-// ── Monthly trend bar chart ───────────────────────────────────────────────
 function MonthlyTrend({ transactions }: { transactions: Tx[] }) {
   const months = useMemo(() => {
     const now = new Date()
@@ -360,7 +524,6 @@ function MonthlyTrend({ transactions }: { transactions: Tx[] }) {
 
   const peak = Math.max(...months.flatMap(m => [m.credits, m.debits]), 1)
   const hasData = months.some(m => m.credits || m.debits)
-
   if (!hasData) return null
 
   return (
