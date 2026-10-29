@@ -12,6 +12,19 @@ const fmtDate = (iso: string) =>
 const fmtDateTime = (iso: string) =>
   new Date(iso).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })
 
+const methodLabel = (m: string | null | undefined) => {
+  if (!m) return '—'
+  const map: Record<string, string> = {
+    international_wire: 'International Wire',
+    domestic_wire: 'Domestic Wire',
+    wire: 'Wire Transfer',
+    ach: 'ACH',
+    internal: 'Internal',
+    zelle: 'Zelle',
+  }
+  return map[m] || m.replace(/_/g, ' ').replace(/\\b\\w/g, c => c.toUpperCase())
+}
+
 type Tx = {
   id: string
   type: string
@@ -80,7 +93,7 @@ export function StatementsPage() {
       (t.fee ?? 0).toFixed(2),
       t.amount.toFixed(2),
     ])
-    const csv = [headers, ...rows].map(r => r.join(',')).join('\n')
+    const csv = [headers, ...rows].map(r => r.join(',')).join('\\n')
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -235,16 +248,16 @@ export function StatementsPage() {
               <p className="text-sm text-gray-500 mt-1">{selected.description}</p>
             </div>
             <div className="px-6 pb-4 divide-y divide-gray-100 text-sm">
-              <Row label="Status"          value={selected.status}/>
-              <Row label="Type"            value={selected.type}/>
-              <Row label="Method"          value={selected.transfer_method || '—'}/>
-              <Row label="Category"        value={selected.category || '—'}/>
+              <Row label="Status" value={selected.status.charAt(0).toUpperCase() + selected.status.slice(1)}/>
+              <Row label="Type" value={selected.type.charAt(0).toUpperCase() + selected.type.slice(1)}/>
+              <Row label="Method" value={methodLabel(selected.transfer_method)}/>
+              <Row label="Category" value={selected.category ? selected.category.replace(/_/g, ' ').replace(/\\b\\w/g, c => c.toUpperCase()) : '—'}/>
               {selected.beneficiary_name && <Row label="Beneficiary" value={selected.beneficiary_name}/>}
-              {selected.beneficiary_bank && <Row label="Bank"        value={selected.beneficiary_bank}/>}
+              {selected.beneficiary_bank && <Row label="Bank" value={selected.beneficiary_bank}/>}
               {selected.fee != null && selected.fee > 0 && <Row label="Fee" value={fmt(selected.fee)} mono/>}
               {selected.reference && <Row label="Reference" value={selected.reference} mono/>}
               <Row label="Confirmation ID" value={selected.id} mono small/>
-              <Row label="Date"            value={fmtDateTime(selected.created_at)}/>
+              <Row label="Date" value={fmtDateTime(selected.created_at)}/>
               {selected.memo && <Row label="Memo" value={selected.memo}/>}
             </div>
           </div>
@@ -287,9 +300,15 @@ function TransactionRow({ tx, onSelect }: { tx: Tx; onSelect: () => void }) {
             {style.icon && <span>{style.icon}</span>}
             {style.label}
           </span>
+          {tx.transfer_method && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-navy-50 text-navy-600 font-semibold">
+              {methodLabel(tx.transfer_method)}
+            </span>
+          )}
         </div>
         <p className="text-xs text-gray-400 mt-1">
           {fmtDate(tx.created_at)}{tx.reference ? ` · ${tx.reference}` : ''}
+          {tx.beneficiary_name ? ` · ${tx.beneficiary_name}` : ''}
           {isPending && ' · funds not yet moved'}
         </p>
       </div>
@@ -360,8 +379,8 @@ function MonthlyTrend({ transactions }: { transactions: Tx[] }) {
           return (
             <div key={m.key} className="flex-1 flex flex-col items-center">
               <div className="w-full flex items-end justify-center gap-1 h-full">
-                <div className="w-1/2 bg-green-500 rounded-t" style={{ height: `${cH}%` }} title={'+$' + m.credits.toFixed(0)}/>
-                <div className="w-1/2 bg-gray-400 rounded-t" style={{ height: `${dH}%` }} title={'−$' + m.debits.toFixed(0)}/>
+                <div className="w-1/2 bg-green-500 rounded-t" style={{ height: `${cH}%` }} title={'+€' + m.credits.toFixed(0)}/>
+                <div className="w-1/2 bg-gray-400 rounded-t" style={{ height: `${dH}%` }} title={'−€' + m.debits.toFixed(0)}/>
               </div>
               <p className="text-xs text-gray-500 mt-2">{m.label}</p>
             </div>
